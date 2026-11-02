@@ -1,0 +1,28 @@
+{
+  "name": "hamster-tower",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A turn-based tower climb where every round of real work by the Squeekchain hamster is a floor",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "node scripts/build.js && node scripts/dev.js",
+    "build": "node scripts/build.js",
+    "export": "node scripts/build.js --export",
+    "sync": "node scripts/sync.js",
+    "migrate": "node scripts/migrate.js",
+    "db:stop": "node scripts/db-stop.js",
+    "test": "node tests/api.test.js",
+    "bake-art": "node scripts/bake-art.js",
+    "sim": "node scripts/build.js && node scripts/sim.js",
+    "e2e": "node scripts/e2e.js",
+    "loadtest": "node scripts/loadtest.js"
+  },
+  "dependencies": {
+    "pg": "^8.23.1",
+    "viem": "^2.57.14"
+  },
+  "devDependencies": {
+    "embedded-postgres": "18.6.0-beta.19",
+    "esbuild": "^0.25.0"
+  }
+}

@@ -1,0 +1,186 @@
+// API tests against a running server: node tests/api.test.js [baseUrl]
+const E = require('../lib/engine.generated.cjs');
+const BASE = process.argv[2] || 'http://localhost:3000';
+let passed = 0, failed = 0;
+const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ok   ' + name); } else { failed++; console.log('  FAIL ' + name + (extra ? ' -> ' + JSON.stringify(extra).slice(0, 200) : '')); } };
+function client() {
+  let cookie = '';
+  return async function call(path, body, headers) {
+    const init = { method: body === undefined ? 'GET' : 'POST', headers: Object.assign({ 'content-type': 'application/json' }, cookie ? { cookie } : {}, headers || {}) };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const r = await fetch(BASE + path, init);
+    const sc = r.headers.get('set-cookie');
+    if (sc) cookie = sc.split(';')[0];
+    let j = {};try { j = await r.json(); } catch (e) {}
+    return { status: r.status, body: j, headers: r.headers };
+  };
+}
+const rid = () => Math.random().toString(36).slice(2);
+const toRows = rs => rs.map(x => ({ round: x[0], work: x[1], blocks: x[2], hash: x[3], gap: x[4], t: x[5] }));
+const toG = st => ({ coins: st.coins, top: st.top, team: st.team, owned: st.owned, items: (st.items || []).map(a => ({ uid: a[0], set: a[1], slot: a[2], rar: a[3], plus: a[4] })), chests: st.chests, battles: st.battles, gifts: st.gifts });
+function botPlans(G, node, floors, seed) {
+  const { B } = E.startBattle(G, node, floors, { seed });
+  const plans = [];let g = 0;
+  while (!B.over && g++ < 60) {
+    const p = {};
+    E.alive(B, 'p').forEach(u => { p[u.id] = { i: E.canPick(B, u.id, 2) ? 2 : E.canPick(B, u.id, 1) ? 1 : 0, target: null }; });
+    plans.push(JSON.parse(JSON.stringify(p)));
+    E.runRound(B, p);
+  }
+  return { plans, over: B.over };
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  const R = await fetch(BASE + '/api/rounds').then(r => r.json());
+  const floors = E.buildFloors(toRows(R.rounds));
+  check('all history is loaded', floors.length >= 499, floors.length);
+  const rr = await fetch(BASE + '/api/rounds');
+  check('floor list is cacheable by the CDN', (rr.headers.get('cache-control') || '').includes('s-maxage'));
+  check('two contracts are listed in order', R.cores.length === 2 && R.cores[0].to + 1 === R.cores[1].from, R.cores);
+
+  console.log('Sign in');
+  const a = client();
+  check('anonymous request is refused', (await a('/api/me')).status === 401);
+  check('action without sign in is refused', (await a('/api/action', { type: 'sweep' })).status === 401);
+  check('guest sign in works', (await a('/api/auth/guest', {})).status === 200);
+  const me = await a('/api/me');
+  check('state is returned', me.status === 200 && me.body.state.top === 0);
+  check('the random state never reaches the client', !('rs' in me.body.state) && !JSON.stringify(me.body).includes('"rs"'));
+
+  console.log('Battle checks');
+  const G = toG(me.body.state);
+  const s1 = await a('/api/battle/start', { floor: 5, b: G.battles });
+  const f1 = await a('/api/battle/finish', { token: s1.body.token, plans: [], requestId: rid() });
+  check('a locked floor cannot be claimed', f1.status === 400, f1.body);
+  const s2 = await a('/api/battle/start', { floor: 1, b: G.battles });
+  const fk = await a('/api/battle/finish', { token: s2.body.token.slice(0, -2) + 'xx', plans: [], requestId: rid() });
+  check('a forged ticket is refused', fk.status === 400, fk.body);
+  const { plans, over } = botPlans(G, floors[0], floors, s2.body.seed);
+  const fq = await a('/api/battle/finish', { token: s2.body.token, plans: new Array(50).fill(plans[0]), requestId: rid() });
+  check('a battle that ends too fast is refused', fq.status === 400 && /quickly/.test(fq.body.error), fq.body);
+  await sleep(Math.max(800, plans.length * 750));
+  const req1 = rid();
+  const f2 = await a('/api/battle/finish', { token: s2.body.token, plans, requestId: req1 });
+  check('the server replay agrees with the client', f2.status === 200 && f2.body.over === over, f2.body);
+  check('first clear unlocks the floor and gives chests', f2.body.state.top === 1 && f2.body.res.first && f2.body.res.chests.length >= 2, f2.body.res);
+  const coins1 = f2.body.state.coins;
+  const f3 = await a('/api/battle/finish', { token: s2.body.token, plans, requestId: req1 });
+  check('resending the same request cannot pay twice', f3.status === 200 && f3.body.dup === true && f3.body.state.coins === coins1, f3.body);
+  const f4 = await a('/api/battle/finish', { token: s2.body.token, plans, requestId: rid() });
+  check('reusing a battle ticket is refused', f4.status === 409, f4.body);
+  const cheat = await a('/api/battle/start', { floor: 2, b: f2.body.state.battles });
+  await sleep(800);
+  const f5 = await a('/api/battle/finish', { token: cheat.body.token, plans: [{ p0: { i: 0, target: null } }], requestId: rid() });
+  check('claiming a win without winning records no clear', f5.status === 200 && f5.body.state.top === 1, f5.body);
+
+  console.log('Actions');
+  const bad = async (body, re) => { const r = await a('/api/action', Object.assign({ requestId: rid() }, body)); return r.status === 400 && (!re || re.test(r.body.error)); };
+  check('unknown action type is refused', await bad({ type: 'nope' }));
+  check('prototype names as action are refused', await bad({ type: '__proto__' }) && await bad({ type: 'constructor' }));
+  check('the old paid level up action is gone', await bad({ type: 'level', id: 'blade', times: 1 }));
+  check('prototype names as pet id are refused', await bad({ type: 'feed', id: '__proto__', auto: true }, /own/));
+  check('a team with a pet you do not own is refused', await bad({ type: 'team', team: ['poseidon'] }, /own/));
+  const poor = client();await poor('/api/auth/guest', {});
+  check('opening a bag without coins is refused', (await poor('/api/action', { type: 'bag', n: 1, requestId: rid() })).status === 400);
+  check('buying food without coins is refused', (await poor('/api/action', { type: 'foodbag', tier: 0, n: 1, requestId: rid() })).status === 400);
+  check('food odds add up to 100% in every bag', E.FOOD_BAGS.every(b => Math.abs(E.FOODS_LIST.reduce((x, f) => x + E.foodRate(b, f), 0) - 100) < 1e-9));
+  check('wheel luck adds up to 100%', E.RUN_LUCK.reduce((x, l) => x + l.p, 0) === 100);
+  const chests = await a('/api/action', { type: 'chest', all: true, requestId: rid() });
+  check('chests open on the server', chests.status === 200 && chests.body.results.length >= 2 && chests.body.state.chests.every(x => x === 0), chests.body);
+  check('the second sweep of a day is refused', (await a('/api/action', { type: 'sweep', requestId: rid() })).status === 200 && (await a('/api/action', { type: 'sweep', requestId: rid() })).status === 400);
+
+  console.log('Food and the wheel');
+  /* a separate player, because each player has a request limit */
+  const fd = client();await fd('/api/auth/guest', {});
+  const badFd = async (body, re) => { const r = await fd('/api/action', Object.assign({ requestId: rid() }, body)); return r.status === 400 && (!re || re.test(r.body.error)); };
+  check('feeding a pet you do not own is refused', await badFd({ type: 'feed', id: 'poseidon', auto: true }, /own/));
+  check('running a pet you do not own is refused', await badFd({ type: 'run', id: 'poseidon' }, /own/));
+  check('prototype names as food are refused', await badFd({ type: 'feed', id: 'blade', food: '__proto__' }, /food/i) && await badFd({ type: 'feed', id: 'blade', food: 'constructor' }, /food/i));
+  check('feeding a food you do not hold is refused', await badFd({ type: 'feed', id: 'blade', food: 'chicken', n: 1 }, /do not have/));
+  check('a hungry hamster cannot run', await badFd({ type: 'run', id: 'blade' }, /not full/));
+  await fd('/api/dev', { op: 'coins' });
+  const coins0 = (await fd('/api/me')).body.state.coins;
+  const buy = await fd('/api/action', { type: 'foodbag', tier: 0, n: 10, requestId: rid() });
+  const foodCount = st => Object.values(st.foods).reduce((x, y) => x + y, 0);
+  check('food bags take coins and give one food each', buy.status === 200 && buy.body.state.coins === coins0 - 10 * E.FOOD_BAGS[0].cost && foodCount(buy.body.state) === 10 && buy.body.results.length === 10, buy.body.state);
+  check('every bag result is a real food', buy.body.results.every(r => r.kind === 'food' && E.FOODS[r.id]));
+  const top = E.FOOD_BAGS[E.FOOD_BAGS.length - 1];
+  const far = await fd('/api/action', { type: 'foodbag', tier: 99, n: 1, requestId: rid() });
+  check('a bag tier out of range charges the top bag', far.body.state.coins === buy.body.state.coins - top.cost, far.body);
+  const oneFood = Object.keys(far.body.state.foods).find(id => E.FOODS[id].fill <= E.stomach(1)) || Object.keys(far.body.state.foods)[0], heldOne = far.body.state.foods[oneFood];
+  const fed = await fd('/api/action', { type: 'feed', id: 'blade', food: oneFood, n: 1, requestId: rid() });
+  check('feeding uses the food and fills the stomach', fed.status === 200 && (fed.body.state.foods[oneFood] || 0) === heldOne - 1 && fed.body.state.owned.blade.full === Math.min(E.stomach(1), E.FOODS[oneFood].fill), fed.body.state.owned.blade);
+  await fd('/api/dev', { op: 'food' });
+  const req2 = rid();
+  const auto = await fd('/api/action', { type: 'feed', id: 'blade', auto: true, requestId: req2 });
+  check('feeding to full reaches 100%', auto.status === 200 && auto.body.state.owned.blade.full === E.stomach(auto.body.state.owned.blade.lv), auto.body.state.owned.blade);
+  const again = await fd('/api/action', { type: 'feed', id: 'blade', auto: true, requestId: req2 });
+  check('resending a feed request cannot eat twice', again.status === 200 && again.body.dup === true && foodCount(again.body.state) === foodCount(auto.body.state), again.body);
+  check('a full hamster cannot eat more', await badFd({ type: 'feed', id: 'blade', auto: true }, /full/));
+  const ran = await fd('/api/action', { type: 'run', id: 'blade', requestId: rid() });
+  const blade = ran.body.state.owned.blade;
+  check('a run gives XP and empties the stomach', ran.status === 200 && ran.body.r.xp > 0 && blade.full === 0 && (blade.lv > 1 || blade.xp === ran.body.r.xp), ran.body);
+  check('XP stays below what the next level needs', blade.xp < E.xpNeed(blade.lv), blade);
+  check('the old level fail counter is gone', !('fail' in blade), blade);
+  check('a run right after a run is refused', await badFd({ type: 'run', id: 'blade' }, /not full/));
+  const train = await fd('/api/action', { type: 'run', id: 'blade', all: true, requestId: rid() });
+  check('use all food runs many times', train.status === 200 && train.body.r.runs > 1 && train.body.state.owned.blade.lv > blade.lv, train.body.r);
+
+  console.log('Test panel and concurrency');
+  for (let i = 0; i < 3; i++) await a('/api/dev', { op: 'coins' });
+  const before = (await a('/api/me')).body.state;
+  const par = await Promise.all(new Array(12).fill(0).map(() => a('/api/action', { type: 'bag', n: 1, requestId: rid() })));
+  const okN = par.filter(r => r.status === 200).length;
+  const after = (await a('/api/me')).body.state;
+  check('parallel writes lose nothing', after.coins === before.coins - 500 * okN && after.bags === before.bags + okN, { okN, coins: [before.coins, after.coins], bags: [before.bags, after.bags] });
+  check('every parallel request either worked or was told to retry', par.every(r => r.status === 200 || r.status === 409), par.map(r => r.status));
+
+  console.log('Wallet sign in');
+  const { privateKeyToAccount, generatePrivateKey } = await import('viem/accounts');
+  const acc = privateKeyToAccount(generatePrivateKey()), other = privateKeyToAccount(generatePrivateKey());
+  const w = client();
+  const n1 = await w('/api/auth/nonce', { address: acc.address });
+  check('sign in message states no transaction', /no transaction/.test(n1.body.message));
+  const wrong = await w('/api/auth/verify', { ticket: n1.body.ticket, signature: await other.signMessage({ message: n1.body.message }) });
+  check('a signature from another wallet is refused', wrong.status === 400, wrong.body);
+  const good = await w('/api/auth/verify', { ticket: n1.body.ticket, signature: await acc.signMessage({ message: n1.body.message }) });
+  check('a valid signature signs in', good.status === 200, good.body);
+  const m1 = await w('/api/me');
+  check('the wallet is stored in full', m1.body.player && m1.body.player.wallet === acc.address.toLowerCase(), m1.body.player);
+  const w2 = client();
+  const n2 = await w2('/api/auth/nonce', { address: acc.address });
+  await w2('/api/auth/verify', { ticket: n2.body.ticket, signature: await acc.signMessage({ message: n2.body.message }) });
+  check('signing in again returns the same player', (await w2('/api/me')).body.player.id === m1.body.player.id);
+
+  console.log('The static copy on another site');
+  const HOME = 'https://hamster-tower.imd.site', EVIL = 'https://evil.example', JSON_H = { 'content-type': 'application/json' };
+  const pre = await fetch(BASE + '/api/me', { method: 'OPTIONS', headers: { origin: HOME, 'access-control-request-method': 'GET', 'access-control-request-headers': 'authorization' } });
+  check('a listed site passes the browser preflight', pre.status === 204 && pre.headers.get('access-control-allow-origin') === HOME && /authorization/.test(pre.headers.get('access-control-allow-headers')));
+  const preEvil = await fetch(BASE + '/api/me', { method: 'OPTIONS', headers: { origin: EVIL, 'access-control-request-method': 'GET' } });
+  check('an unlisted site gets no permission', !preEvil.headers.get('access-control-allow-origin'));
+  const pubData = await fetch(BASE + '/api/rounds', { headers: { origin: EVIL } });
+  check('any site can read public data', pubData.headers.get('access-control-allow-origin') === '*');
+  const guestHome = await fetch(BASE + '/api/auth/guest', { method: 'POST', headers: Object.assign({ origin: HOME }, JSON_H), body: '{}' });
+  const guestJson = await guestHome.json();
+  check('signing in from the copy gives a ticket and no cookie', guestHome.status === 200 && !!guestJson.ticket && !guestHome.headers.get('set-cookie'), guestJson);
+  const meHome = await fetch(BASE + '/api/me', { headers: { origin: HOME, authorization: 'Bearer ' + guestJson.ticket } });
+  check('the ticket works as a header', meHome.status === 200 && (await meHome.json()).state.top === 0);
+  check('a forged ticket is refused', (await fetch(BASE + '/api/me', { headers: { authorization: 'Bearer ' + guestJson.ticket.slice(0, -2) + 'xx' } })).status === 401);
+  const nonceHome = await fetch(BASE + '/api/auth/nonce', { method: 'POST', headers: Object.assign({ origin: HOME }, JSON_H), body: JSON.stringify({ address: acc.address }) });
+  check('the sign in message names the site the player is on', (await nonceHome.json()).message.includes('hamster-tower.imd.site'));
+  check('an unlisted site cannot sign in', (await fetch(BASE + '/api/auth/guest', { method: 'POST', headers: Object.assign({ origin: EVIL }, JSON_H), body: '{}' })).status === 403);
+
+  console.log('Other protections');
+  check('a request from another site is refused', (await a('/api/action', { type: 'sweep', requestId: rid() }, { origin: 'https://evil.example' })).status === 403);
+  const myRank = await w('/api/rank');
+  check('a player with no cleared floor has no rank yet', myRank.status === 200 && myRank.body.rank === null, myRank.body);
+  const burst = await Promise.all(new Array(60).fill(0).map(() => a('/api/rank')));
+  check('too many requests are limited', burst.some(r => r.status === 429), burst.filter(r => r.status === 429).length);
+  const lb = await fetch(BASE + '/api/leaderboard');
+  check('leaderboard is cacheable by the CDN', (lb.headers.get('cache-control') || '').includes('s-maxage'));
+  const lbBody = await lb.json();
+  check('leaderboard returns a list with the total and when each floor was reached', Array.isArray(lbBody.top) && lbBody.total >= 1 && lbBody.top.every(r => r.name && r.top > 0 && r.at > 0), lbBody);
+  check('a climber sees their own rank', burst.some(r => r.status === 200 && r.body.rank >= 1 && r.body.top >= 1), burst.find(r => r.status === 200));
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed ? 1 : 0);
+})().catch(e => { console.error('Test run failed:', e); process.exit(1); });

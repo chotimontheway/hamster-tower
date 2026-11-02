@@ -1,0 +1,11 @@
+node_modules/
+.data/
+.env
+.env.local
+.env.*.local
+.vercel/
+shots/
+dist/
+public/app/
+public/index.html
+lib/engine.generated.cjs
