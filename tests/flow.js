@@ -25,6 +25,11 @@
     PREF.speed=3;
     if(UI.view!=='login')await click('[data-act=logout]',300);
     seen.push('login view='+UI.view+' guest button='+!!qs('[data-act=guest]')+' wallet button='+!!qs('[data-act=wallet]'));
+    const noWallet=()=>Object.assign(new Error('no'),{code:4001});
+    dispatchEvent(new CustomEvent('eip6963:announceProvider',{detail:{info:{uuid:'t1',rdns:'test.one',name:'Test <b>One</b>',icon:'javascript:alert(1)'},provider:{request:async()=>{throw noWallet();}}}}));
+    await click('[data-act=wallet]');seen.push('wallet list rows='+document.querySelectorAll('.wrow').length+' name escaped='+(qs('.wtx b').textContent==='Test <b>One</b>')+' bad icon refused='+!qs('.wrow img'));
+    await click('.wrow',200);seen.push('wallet refused keeps the list='+(UI.sheet&&UI.sheet.type)+' toast='+(qs('.toast')&&qs('.toast').textContent));
+    await click('.sheet [data-act=close]');
     await click('[data-act=guest]',600);await until(()=>UI.view==='tower');
     seen.push('tower floors='+FLOORS.length+' rows='+document.querySelectorAll('.floor').length+' top='+G.top);
     await click('.hero .btn.big');seen.push('floor sheet='+(UI.sheet&&UI.sheet.type)+' map preview='+!!qs('canvas[data-map]'));

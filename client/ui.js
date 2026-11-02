@@ -95,6 +95,63 @@ function navBar(){
 }
 /* x, y, seconds, drift x, drift y: a few fireflies over the picture, opacity and transform only */
 const FLIES=[[8,62,5,40,-34],[17,78,7,-30,-46],[26,54,6,34,30],[33,84,8,46,-28],[44,70,5.5,-36,-40],[56,86,7.5,30,-52],[64,60,6.5,-44,26],[72,80,5,38,-30],[81,56,8,-30,-44],[90,74,6,-42,34],[12,40,9,30,24],[86,34,8.5,-26,30]];
+/* WALLET LIST: each installed wallet announces its own name and icon (EIP-6963). Older wallets only set window.ethereum.
+   Names and icons come from outside the game, so they are escaped and an icon must be an image data address */
+const WALLETS=new Map();
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+addEventListener('eip6963:announceProvider',e=>{
+  const d=e.detail;
+  if(!d||!d.info||!d.provider||typeof d.provider.request!=='function')return;
+  WALLETS.set(d.info.rdns||d.info.uuid||d.info.name,d);
+  if(UI.sheet&&UI.sheet.type==='wallets')render();
+});
+const askWallets=()=>dispatchEvent(new Event('eip6963:requestProvider'));
+askWallets();
+const legacyName=p=>p.isRabby?'Rabby':p.isBraveWallet?'Brave Wallet':p.isCoinbaseWallet?'Coinbase Wallet':p.isTrust||p.isTrustWallet?'Trust Wallet':p.isOkxWallet||p.isOKExWallet?'OKX Wallet':p.isMetaMask?'MetaMask':'Browser wallet';
+function walletList(){
+  if(WALLETS.size)return [...WALLETS.values()];
+  const eth=window.ethereum;
+  if(!eth)return [];
+  return (Array.isArray(eth.providers)&&eth.providers.length?eth.providers:[eth]).map(p=>({info:{name:legacyName(p)},provider:p}));
+}
+function sheetWallets(){
+  const list=walletList();
+  if(!list.length)return `<h2>Connect a wallet</h2><p>No wallet found in this browser.</p>
+    <p class="note">Install a browser wallet such as <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer">MetaMask</a> or <a href="https://rabby.io/" target="_blank" rel="noopener noreferrer">Rabby</a>, then reload this page. On a phone, open this page in your wallet app's browser.</p>`;
+  return `<h2>Connect a wallet</h2>
+    <div class="wlist">${list.map((w,i)=>{
+      const name=w.info.name||'Wallet',ok=/^data:image\/(svg\+xml|png|webp|jpeg|gif)[;,]/i.test(w.info.icon||'');
+      return `<button class="wrow" data-act="wallet-pick" data-i="${i}">${ok?`<img src="${esc(w.info.icon)}" alt="">`:`<i class="wlet" aria-hidden="true">${esc(String(name)[0])}</i>`}<span class="wtx"><b>${esc(name)}</b><small>${UI.walletWait===i?'Check your wallet...':'Installed'}</small></span></button>`;
+    }).join('')}</div>
+    <p class="note">You only sign a message. It costs nothing and sends no transaction.</p>`;
+}
+/* a wallet may never answer, so this does not lock the page: picking another wallet or closing the list drops the attempt */
+async function pickWallet(i){
+  const w=walletList()[i];if(!w)return;
+  const eth=w.provider,run=UI.walletRun=(UI.walletRun||0)+1;
+  const live=()=>run===UI.walletRun&&UI.sheet&&UI.sheet.type==='wallets';
+  UI.walletWait=i;render();
+  try{
+    const accounts=await eth.request({method:'eth_requestAccounts'}),address=accounts&&accounts[0];
+    if(!live())return;
+    if(!address)throw new Error('This wallet did not share an account');
+    const n=await api('/api/auth/nonce',{address});
+    if(!live())return;
+    /* the wallet only ever signs our own sign in text for this address, whatever the server sends */
+    if(!n.message.startsWith('Sign in to Hamster Tower\n')||!n.message.includes('Wallet: '+address.toLowerCase()+'\n')||!n.message.endsWith('This signature costs nothing and sends no transaction.'))throw new Error('The sign in message looks wrong, nothing was signed.');
+    const hex='0x'+[...new TextEncoder().encode(n.message)].map(b=>b.toString(16).padStart(2,'0')).join('');
+    const signature=await eth.request({method:'personal_sign',params:[hex,address]});
+    if(!live())return;
+    await api('/api/auth/verify',{ticket:n.ticket,signature});
+    if(!live())return;
+    UI.sheet=null;UI.walletWait=null;
+    await afterLogin();
+  }catch(e){
+    if(!live())return;
+    UI.walletWait=null;render();
+    toast(e&&e.code===4001?'Cancelled in your wallet':e&&e.code===-32002?'Your wallet already has a request waiting. Open it to answer.':(e&&e.message)||'The wallet could not sign in');
+  }
+}
 function viewLogin(){
   return `<main class="login gut">${FLIES.map(([x,y,d,a,b])=>`<i class="fly" style="--x:${x}%;--y:${y}%;--d:${d}s;--dx:${a}px;--dy:${b}px" aria-hidden="true"></i>`).join('')}<div class="login-box">
     ${pic('wheel_big','Squeektoshi on the wheel')}
@@ -108,7 +165,12 @@ const setBg=m=>{document.documentElement.dataset.bg=m;};
 function render(){
   tipHide();
   setBg(UI.view==='login'?'login':'night');
-  if(UI.view==='login'){$('#app').innerHTML=viewLogin();return;}
+  if(UI.view==='login'){
+    $('#app').innerHTML=viewLogin()+(UI.sheet?sheetHTML():'');
+    const ls=$('.sheet');
+    if(ls&&UI.sheetIn){ls.classList.add('in');UI.sheetIn=false;const x=$('.x',ls);if(x)x.focus({preventScroll:true});}
+    return;
+  }
   const st=$('.sheet')?$('.sheet').scrollTop:0;
   const V={tower:viewTower,team:viewTeam,shop:viewShop,items:viewInv,ranks:viewRanks,codex:viewCodex,result:viewResult}[UI.view];
   $('#app').innerHTML=topBar()+`<main class="main gut"><div class="wrap stack">${V()}</div></main>`+(UI.view==='result'?'':navBar())+(UI.sheet?sheetHTML():'');
@@ -120,8 +182,8 @@ function openSheet(s){UI.sheet=s;UI.sheetIn=true;UI.feedAsk=null;UI.allAsk=null;
 function closeSheet(){UI.sheet=null;UI.wipeAsk=false;UI.feedAsk=null;UI.allAsk=null;render();}
 function sheetHTML(){
   const s=UI.sheet;
-  const inner={floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial}[s.type](s);
-  return `<div class="sheet-wrap" data-act="close-bg"><div class="sheet" role="dialog" aria-modal="true"><button class="x" data-act="close" aria-label="Close">×</button>${inner}</div></div>`;
+  const inner={floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial,wallets:sheetWallets}[s.type](s);
+  return `<div class="sheet-wrap" data-act="close-bg"><div class="sheet s-${s.type}" role="dialog" aria-modal="true"><button class="x" data-act="close" aria-label="Close">×</button>${inner}</div></div>`;
 }
 
 /* TOWER SCREEN */
@@ -1212,18 +1274,8 @@ const ACT={
   block(d){UI.block=+d.e;render();},
   async sweep(){const j=await action('sweep');if(j.r)openSheet({type:'sweep',r:j.r});else render();},
   async guest(){await api('/api/auth/guest',{});await afterLogin();},
-  async wallet(){
-    const eth=window.ethereum;
-    if(!eth){toast('No wallet found in this browser. Install MetaMask or a similar wallet and try again.');return;}
-    const accounts=await eth.request({method:'eth_requestAccounts'}),address=accounts[0];
-    const n=await api('/api/auth/nonce',{address});
-    /* the wallet only ever signs our own sign in text for this address, whatever the server sends */
-    if(!n.message.startsWith('Sign in to Hamster Tower\n')||!n.message.includes('Wallet: '+address.toLowerCase()+'\n')||!n.message.endsWith('This signature costs nothing and sends no transaction.')){toast('The sign in message looks wrong, nothing was signed.');return;}
-    const hex='0x'+[...new TextEncoder().encode(n.message)].map(b=>b.toString(16).padStart(2,'0')).join('');
-    const signature=await eth.request({method:'personal_sign',params:[hex,address]});
-    await api('/api/auth/verify',{ticket:n.ticket,signature});
-    await afterLogin();
-  },
+  wallet(){UI.walletWait=null;askWallets();openSheet({type:'wallets'});},
+  'wallet-pick'(d){pickWallet(+d.i);},
   async logout(){await api('/api/auth/logout',{});setTicket(null);if(BT)leaveBattle();G=null;PLAYER=null;UI.sheet=null;UI.ranks=null;UI.view='login';render();},
   async 'res-retry'(){const r=UI.result;if(!r||!r.finish)return;await saveResult(r);render();},
   'to-chests'(){UI.view='items';UI.invTab='chest';UI.sheet=null;UI.result=null;render();window.scrollTo(0,0);},
