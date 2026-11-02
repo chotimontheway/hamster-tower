@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "A turn-based tower climb where every round of real work by the Squeekchain hamster is a floor",
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22 <25" },
   "scripts": {
     "dev": "node scripts/build.js && node scripts/dev.js",
     "build": "node scripts/build.js",

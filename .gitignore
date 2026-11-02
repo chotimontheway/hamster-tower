@@ -9,3 +9,5 @@ dist/
 public/app/
 public/index.html
 lib/engine.generated.cjs
+.env*
+!.env.example

@@ -38,7 +38,7 @@ async function api(path,body){
     try{
       const r=await fetch(API_BASE+path,init);
       const j=await r.json().catch(()=>({}));
-      if(r.ok){if(j.ticket)setTicket(j.ticket);return j;}
+      if(r.ok){if(j.session)setTicket(j.session);return j;}
       const e=new Error(j.error||'Something went wrong, please try again');e.status=r.status;e.data=j;
       if(r.status<500)throw e;
       last=e;
