@@ -17,7 +17,7 @@ Open http://localhost:3000 and choose **Play as guest** or **Sign in with wallet
 
 Press Ctrl+C to stop. If you close the terminal instead, the database keeps running. The next `npm run dev` reuses it, or run `npm run db:stop`.
 
-The **Test panel** button adds coins, chests and food, unlocks all pets, resets Sweep and jumps floors. It only exists when `ALLOW_TRIAL=1`, which `npm run dev` sets for you.
+The **Test panel** button adds coins, chests and food, unlocks all pets, resets Sweep and jumps floors. `npm run dev` sets `ALLOW_TRIAL=1`, which gives it to everyone on your machine. On the live site only the wallets listed in `TEST_WALLETS` get it, and the server checks this on every call. Floors a test wallet jumps to count on the leaderboard until it erases its data.
 
 ## Economy
 

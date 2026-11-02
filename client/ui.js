@@ -83,9 +83,10 @@ function topBar(){
     <div class="grow"></div>
     <span class="pill num" title="Coins">${coin}${fmt(G.coins)}</span>
     <span class="pill num">Floor ${G.top}</span>
-    ${CFG.trial?'<button class="trial-btn" data-act="sheet" data-type="trial">Test panel</button>':''}<button class="trial-btn" data-act="logout">Sign out</button>
+    ${PLAYER&&PLAYER.trial?'<button class="trial-btn" data-act="sheet" data-type="trial">Test<span class="wide"> panel</span></button>':''}${PLAYER&&PLAYER.wallet?`<span class="who"><button class="who-addr num" data-act="copy" data-t="${PLAYER.name}" title="Copy ${PLAYER.name}" aria-label="Copy wallet address ${PLAYER.name}">${shortAddr(PLAYER.name)}</button><button class="who-out" data-act="logout">Sign out</button></span>`:'<button class="trial-btn" data-act="logout">Sign out</button>'}
   </div></header>`;
 }
+const shortAddr=a=>a.slice(0,6)+'...'+a.slice(-4);
 function navBar(){
   const eq=equippedUids(G);
   const merge=G.items.some(it=>!eq.has(it.uid)&&canMerge(G,it));
@@ -1193,7 +1194,7 @@ function sandboxNode(id){
 /* TEST PANEL */
 function sheetTrial(){
   return `<h2>Test panel</h2>
-    <p class="note">Only available when running locally (ALLOW_TRIAL=1), so you can see all the content quickly. The real version does not have this panel.</p>
+    <p class="note">Only test wallets see this panel, so you can reach all the content quickly. It changes this account for real: floors you jump to count on the leaderboard until you erase your data.</p>
     <div class="sec-t">Add resources</div>
     <div class="btns"><button class="btn sm" data-act="tr-coins">Add 10,000 coins</button><button class="btn sm" data-act="tr-chests">Add 38 chests</button><button class="btn sm" data-act="tr-food">Add 10 of every food</button><button class="btn sm" data-act="tr-pets">Get all ${PETS_LIST.length} pets</button><button class="btn sm" data-act="tr-sweep">Reset Sweep</button></div>
     <div class="sec-t">Jump to a floor (the team is leveled up to match)</div>
@@ -1284,7 +1285,7 @@ const ACT={
   async 'item-sell'(d){const j=await action('sell',{uid:+d.uid});UI.sheet=null;render();toast(`Sold for ${fmt(j.coins)} coins`);},
   async 'equip-from-item'(d){await action('equip',{id:d.id,uid:+d.uid});render();toast(`${PETS[d.id].n} is now wearing it`);},
   tab(d){UI.tab=d.k;render();window.scrollTo(0,0);},
-  copy(d){const ok=()=>toast('Copied');const no=()=>{const el=$('#'+d.el);if(el){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);}toast('Could not copy, the address is selected instead');};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(d.t).then(ok,no);else no();},
+  copy(d){const ok=()=>toast('Copied');const no=()=>{const el=$('#'+d.el);if(el){const r=document.createRange();r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Could not copy, the address is selected instead');}else toast('Could not copy: '+d.t);};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(d.t).then(ok,no);else no();},
   async 'tr-coins'(){await dev('coins');render();toast('Added 10,000 coins');},
   async 'tr-chests'(){await dev('chests');render();toast('Added 38 chests to your inventory');},
   async 'tr-food'(){await dev('food');render();toast('Added 10 of every food');},
