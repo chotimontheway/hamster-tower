@@ -60,7 +60,7 @@ Existing saves keep their levels. Pets saved before food existed start with an e
 
 The database does as little as possible.
 
-- **Battles run on the player's device.** Entering a battle only returns a signed ticket and does not touch the database. When the battle ends, one request carries the player's choices. The server replays the battle with the same code and writes once.
+- **A turn is one small write.** The battle travels as a signed ticket, so the database only holds a short row per player that counts the turns. A turn bumps that counter, and the player's own row is written once, when the battle ends.
 - **Actions are batched.** Opening 50 bags, using all food or merging everything is one request and one write.
 - **Hot and cold data are separate.** Coins, floor and chest counts sit in one small row written after each battle. Pets, gear and food are written only when they change, as one row per player and never one row per item. Inventories are capped at 500 items, and food is stored as a count per kind.
 - **Reads avoid the database.** Art and code are static files on the CDN. The floor list is one cached response. One process reads the chain, however many people play. The leaderboard is cached for 30 seconds.
@@ -71,9 +71,11 @@ The leaderboard uses an indexed Postgres query behind the cache, so Redis is opt
 
 ## Fairness
 
-The client never receives the random state, so chest, bag, food and wheel results cannot be predicted. The server replays each battle, so a modified client cannot claim a win it did not earn.
+The client never receives the random state, so chest, bag, food and wheel results cannot be predicted.
 
-This does not stop bots. A script can play the game with valid moves, and one person can use many wallets. Rate limits and a minimum battle time slow this down but do not prevent it.
+Real battles run on the server one turn at a time. A turn's luck is made from the server secret after the plan arrives, each turn is counted in the database and can only be played once, and the server books the result itself. So a modified client cannot see ahead, try a turn twice, claim a win or hide a loss. Practice battles run in the browser and count for nothing.
+
+This does not stop bots. A script can play valid turns, and one person can use many wallets. The minimum time per turn is enforced in the database, so a bot cannot play faster than the fastest person, but a prize still needs a review by hand. `battle_log` keeps each first clear and `rare_drops` keeps every legendary that drops.
 
 ## Sound and fonts
 
@@ -122,6 +124,8 @@ The sync checks that total work matches the chain and only reads rounds at least
 
 `npm run export` writes `dist/`: the same game as a static site with relative paths, for hosting on IPFS through IMD. It holds no server code. It calls the API named in `site.config.json`, so the battle replay, random rolls and database stay on Vercel.
 
+The copy already hosted on IPFS was built before battles moved to the server and cannot change without a new paid IMD job. It still runs whole battles by itself, so the server gives it throwaway luck, saves nothing it plays and points players to the main site. Everything else in it still works. A new export plays real battles as usual.
+
 The API only accepts calls from the addresses in `CORS_ORIGINS`. Cookies do not cross between sites, so the copy keeps a signed session ticket in the browser and sends it as a header. Public data such as floors and the leaderboard can be read from anywhere and stays cached by the CDN.
 
 Vercel Cron on the Hobby plan runs once a day. That is only a backup: requests to `/api/rounds` that reach the server also sync when the data is over a minute old.
@@ -132,9 +136,10 @@ Vercel Cron on the Hobby plan runs once a day. That is only a backup: requests t
 
 Results on one Windows desktop, with the load generator, one Node process and Postgres sharing the machine:
 
-| Simulated load | Battles saved per second | Saving a battle, p99 | Errors |
+| Simulated load, a turn every 5 s and 30 s between battles | Turns per second | Playing a turn, p99 | Errors |
 |---|---|---|---|
-| 10,000 players, one battle per 90 s | About 110 at the end of the run | 9 ms | None |
-| 3,000 players, one battle per 3 s | About 670 | 1,251 ms, saturated | None |
+| 1,000 players | About 100 | 8 ms | None |
+| 3,000 players | About 300 | 12 ms | None |
+| 10,000 players | About 930 | 2,767 ms, the one Node process is saturated | None |
 
 These numbers do not describe Vercel or a hosted database. They show the design has room at the target load. Repeat the test against real infrastructure before launch.

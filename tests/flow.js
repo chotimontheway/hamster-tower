@@ -37,13 +37,12 @@
     seen.push('battle units='+document.querySelectorAll('.unit').length+' plan rows='+document.querySelectorAll('.plan-row').length+' order='+document.querySelectorAll('.ord').length+' token='+!!BT.token);
     for(let f=1;f<=6;f++){
       const v=await fight();
-      seen.push('floor '+f+' done view='+v+' win='+(UI.result&&UI.result.win)+' top='+G.top+' team='+G.team.length+' coins='+G.coins+' chests='+chestTotal(G)+' err='+(UI.result&&UI.result.error));
+      seen.push('floor '+f+' done view='+v+' win='+(UI.result&&UI.result.win)+' top='+G.top+' team='+G.team.length+' coins='+G.coins+' chests='+chestTotal(G)+' saved='+(UI.result&&UI.result.saved));
       if(UI.view!=='result')throw new Error('Battle did not end on floor '+f);
       if(!UI.result.win){await click('[data-act=enter]',400);continue;}
       if(f===6)break;
       await click('.res .btn.big',400);await until(()=>UI.view==='battle');
     }
-    seen.push('client and server disagreed '+UI.mismatch+' times');
     await click('[data-act=nav][data-v=tower]');
     await click('.hero .btn.big');await click('[data-act=enter]',500);await until(()=>UI.view==='battle');
     seen.push('3 pet battle rows='+document.querySelectorAll('.plan-row').length+' skill buttons='+document.querySelectorAll('.sk').length);
@@ -116,7 +115,6 @@
     const broken=[...document.querySelectorAll('img')].filter(i=>i.complete&&i.naturalWidth===0).map(i=>i.src);seen.push('broken images='+broken.length+(broken[0]?' '+broken[0]:''));
     const bgs=await Promise.all(['bg_login','bg_login_tall','bg_night','bg_night_tall'].map(n=>fetch('art/'+n+'.webp').then(r=>r.ok)));seen.push('backgrounds found='+bgs.filter(Boolean).length+' of 4, showing '+document.documentElement.dataset.bg);
     const w=document.documentElement.scrollWidth,cw=document.documentElement.clientWidth;seen.push('horizontal overflow='+(w>cw));
-    seen.push('client and server disagreed '+UI.mismatch+' times');
     return {ok:true,seen,errs};
   }catch(e){return {ok:false,error:e.message,seen,errs};}
 })()

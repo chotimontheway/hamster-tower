@@ -17,18 +17,8 @@ function client() {
 }
 const rid = () => Math.random().toString(36).slice(2);
 const toRows = rs => rs.map(x => ({ round: x[0], work: x[1], blocks: x[2], hash: x[3], gap: x[4], t: x[5] }));
-const toG = st => ({ coins: st.coins, top: st.top, team: st.team, owned: st.owned, items: (st.items || []).map(a => ({ uid: a[0], set: a[1], slot: a[2], rar: a[3], plus: a[4] })), chests: st.chests, battles: st.battles, gifts: st.gifts });
-function botPlans(G, node, floors, seed) {
-  const { B } = E.startBattle(G, node, floors, { seed });
-  const plans = [];let g = 0;
-  while (!B.over && g++ < 60) {
-    const p = {};
-    E.alive(B, 'p').forEach(u => { p[u.id] = { i: E.canPick(B, u.id, 2) ? 2 : E.canPick(B, u.id, 1) ? 1 : 0, target: null }; });
-    plans.push(JSON.parse(JSON.stringify(p)));
-    E.runRound(B, p);
-  }
-  return { plans, over: B.over };
-}
+const plainPlan = B => { const p = {}; E.alive(B, 'p').forEach(u => { p[u.id] = { i: E.canPick(B, u.id, 2) ? 2 : E.canPick(B, u.id, 1) ? 1 : 0, target: null }; }); return p; };
+const ticketBody = tok => JSON.parse(Buffer.from(tok.split('.')[0], 'base64url').toString());
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const R = await fetch(BASE + '/api/rounds').then(r => r.json());
@@ -47,31 +37,67 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('state is returned', me.status === 200 && me.body.state.top === 0);
   check('the random state never reaches the client', !('rs' in me.body.state) && !JSON.stringify(me.body).includes('"rs"'));
 
-  console.log('Battle checks');
-  const G = toG(me.body.state);
-  const s1 = await a('/api/battle/start', { floor: 5, b: G.battles });
-  const f1 = await a('/api/battle/finish', { token: s1.body.token, plans: [], requestId: rid() });
-  check('a locked floor cannot be claimed', f1.status === 400, f1.body);
-  const s2 = await a('/api/battle/start', { floor: 1, b: G.battles });
-  const fk = await a('/api/battle/finish', { token: s2.body.token.slice(0, -2) + 'xx', plans: [], requestId: rid() });
+  console.log('Battles run on the server, one turn at a time');
+  check('a locked floor cannot be entered', (await a('/api/fight/start', { floor: 5 })).status === 400);
+  check('a floor that does not exist cannot be entered', (await a('/api/fight/start', { floor: 99999 })).status === 400);
+  const s2 = await a('/api/fight/start', { floor: 1 }), minMs = s2.body.minMs;
+  check('entering a battle works', s2.status === 200 && s2.body.B.units.length >= 2 && !!s2.body.init, s2.body);
+  const inTicket = ticketBody(s2.body.token);
+  check('no future luck reaches the page', !('seed' in s2.body) && !('rng' in s2.body.B) && !('rng' in inTicket.B) && !('seed' in inTicket) && !('s' in inTicket));
+  check('a battle ticket is not a sign in', (await fetch(BASE + '/api/me', { headers: { authorization: 'Bearer ' + s2.body.token } })).status === 401);
+  const p0 = plainPlan(s2.body.B);
+  const tooSoon = await a('/api/fight/turn', { token: s2.body.token, plan: p0 });
+  check('a turn sent too soon is refused and can be sent again', tooSoon.status === 429 && tooSoon.body.slow === true, tooSoon.body);
+  const fk = await a('/api/fight/turn', { token: s2.body.token.slice(0, -2) + 'xx', plan: p0 });
   check('a forged ticket is refused', fk.status === 400, fk.body);
-  const { plans, over } = botPlans(G, floors[0], floors, s2.body.seed);
-  const fq = await a('/api/battle/finish', { token: s2.body.token, plans: new Array(50).fill(plans[0]), requestId: rid() });
-  check('a battle that ends too fast is refused', fq.status === 400 && /quickly/.test(fq.body.error), fq.body);
-  await sleep(Math.max(800, plans.length * 750));
-  const req1 = rid();
-  const f2 = await a('/api/battle/finish', { token: s2.body.token, plans, requestId: req1 });
-  check('the server replay agrees with the client', f2.status === 200 && f2.body.over === over, f2.body);
-  check('first clear unlocks the floor and gives chests', f2.body.state.top === 1 && f2.body.res.first && f2.body.res.chests.length >= 2, f2.body.res);
-  const coins1 = f2.body.state.coins;
-  const f3 = await a('/api/battle/finish', { token: s2.body.token, plans, requestId: req1 });
-  check('resending the same request cannot pay twice', f3.status === 200 && f3.body.dup === true && f3.body.state.coins === coins1, f3.body);
-  const f4 = await a('/api/battle/finish', { token: s2.body.token, plans, requestId: rid() });
-  check('reusing a battle ticket is refused', f4.status === 409, f4.body);
-  const cheat = await a('/api/battle/start', { floor: 2, b: f2.body.state.battles });
-  await sleep(800);
-  const f5 = await a('/api/battle/finish', { token: cheat.body.token, plans: [{ p0: { i: 0, target: null } }], requestId: rid() });
-  check('claiming a win without winning records no clear', f5.status === 200 && f5.body.state.top === 1, f5.body);
+  const intruder = client();await intruder('/api/auth/guest', {});
+  check('another player cannot use the ticket', (await intruder('/api/fight/turn', { token: s2.body.token, plan: p0 })).status === 400);
+  await sleep(minMs + 60);
+  const t1 = await a('/api/fight/turn', { token: s2.body.token, plan: p0 });
+  check('a turn is played on the server', t1.status === 200 && t1.body.ev.length > 0 && !('rng' in t1.body.B), t1.body);
+  const otherPlan = JSON.parse(JSON.stringify(p0));otherPlan.p0.i = otherPlan.p0.i === 1 ? 0 : 1;
+  const t1b = await a('/api/fight/turn', { token: s2.body.token, plan: otherPlan });
+  check('a turn cannot be played again with another plan', t1b.status === 409, t1b.body);
+  const t1c = await a('/api/fight/turn', { token: s2.body.token, plan: p0 });
+  check('the same plan sent again gets the same answer', t1c.status === 200 && JSON.stringify(t1c.body.ev) === JSON.stringify(t1.body.ev), t1c.body);
+  let fB = t1.body.B, fTok = t1.body.token, lastTok = s2.body.token, lastPlan = p0, last = t1;
+  while (!fB.over) {
+    await sleep(minMs + 30);
+    lastTok = fTok;lastPlan = plainPlan(fB);
+    last = await a('/api/fight/turn', { token: fTok, plan: lastPlan });
+    if (last.status !== 200) break;
+    fB = last.body.B;fTok = last.body.token;
+  }
+  check('first clear unlocks the floor and gives chests', last.status === 200 && last.body.over === 'win' && last.body.state.top === 1 && last.body.res.first && last.body.res.chests.length >= 2, last.body);
+  const coins1 = last.body.state.coins, battles1 = last.body.state.battles;
+  const again1 = await a('/api/fight/turn', { token: lastTok, plan: lastPlan });
+  check('sending the last turn again cannot pay twice', again1.status === 200 && again1.body.dup === true && again1.body.state.coins === coins1 && again1.body.state.battles === battles1, again1.body);
+  check('a finished battle cannot go on', (await a('/api/fight/turn', { token: s2.body.token, plan: p0 })).status === 409);
+  const lv = client();await lv('/api/auth/guest', {});
+  const b0 = (await lv('/api/me')).body.state.battles;
+  const e1 = await lv('/api/fight/start', { floor: 1 }), e2 = await lv('/api/fight/start', { floor: 1 });
+  check('entering again before the first turn costs nothing', (await lv('/api/me')).body.state.battles === b0);
+  check('an older ticket of a replaced battle is refused', (await lv('/api/fight/turn', { token: e1.body.token, plan: {} })).status === 409);
+  await sleep(minMs + 60);
+  const played = await lv('/api/fight/turn', { token: e2.body.token, plan: plainPlan(e2.body.B) });
+  const e3 = await lv('/api/fight/start', { floor: 1 });
+  check('leaving after a turn counts as a lost battle', played.status === 200 && (await lv('/api/me')).body.state.battles === b0 + 1, played.body);
+  check('every new try is a new battle with new luck', ticketBody(e3.body.token).id !== ticketBody(e2.body.token).id);
+  const lo = client();await lo('/api/auth/guest', {});await lo('/api/dev', { op: 'jump', n: 400 });
+  const lo0 = (await lo('/api/me')).body.state;
+  const ls = await lo('/api/fight/start', { floor: 401 });
+  let lB = ls.body.B, lTok = ls.body.token, lLast = null, lg = 0;
+  while (!lB.over && lg++ < 40) { await sleep(minMs + 30); lLast = await lo('/api/fight/turn', { token: lTok, plan: plainPlan(lB) }); if (lLast.status !== 200) break; lB = lLast.body.B;lTok = lLast.body.token; }
+  check('a lost battle is booked by the server, the page cannot hide it', lLast && lLast.body.over === 'lose' && lLast.body.state.battles === lo0.battles + 1 && lLast.body.state.wins === lo0.wins && lLast.body.state.top === lo0.top, lLast && lLast.body);
+  const G3 = E.newSave('roundtrip');G3.team = ['chef', 'sandman', 'sparky'];G3.owned = { chef: E.newPet(30), sandman: E.newPet(45), sparky: E.newPet(38) };
+  let sameB = true, tried = 0;
+  for (let f = 3; f <= floors.length; f += 7) for (let k = 0; k < 2 && sameB; k++) {
+    const A = E.startBattle(G3, floors[f - 1], floors, { seed: 'rt' + f + k }).B, C0 = E.startBattle(G3, floors[f - 1], floors, { seed: 'rt' + f + k }).B;
+    let C = C0, n = 0;
+    while (!A.over && n < 40) { const pa = plainPlan(A); C = JSON.parse(JSON.stringify(C)); A.rng = E.seedOf('x' + n);C.rng = E.seedOf('x' + n); const ea = E.runRound(A, pa), ec = E.runRound(C, pa); n++; delete C.rng; if (JSON.stringify(ea) !== JSON.stringify(ec) || A.over !== C.over) sameB = false; }
+    tried++;
+  }
+  check('a battle plays the same after travelling in its ticket (' + tried + ' battles)', sameB && tried > 50);
 
   console.log('Actions');
   const bad = async (body, re) => { const r = await a('/api/action', Object.assign({ requestId: rid() }, body)); return r.status === 400 && (!re || re.test(r.body.error)); };
@@ -80,6 +106,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('the old paid level up action is gone', await bad({ type: 'level', id: 'blade', times: 1 }));
   check('prototype names as pet id are refused', await bad({ type: 'feed', id: '__proto__', auto: true }, /own/));
   check('a team with a pet you do not own is refused', await bad({ type: 'team', team: ['poseidon'] }, /own/));
+  check('one pet cannot stand in a team twice', await bad({ type: 'team', team: ['blade', 'blade', 'blade'] }));
+  check('nor by hiding its name in a list', await bad({ type: 'team', team: [['blade'], ['blade'], ['blade']] }, /own/) && (await a('/api/me')).body.state.team.every(x => typeof x === 'string'));
   const poor = client();await poor('/api/auth/guest', {});
   check('opening a bag without coins is refused', (await poor('/api/action', { type: 'bag', n: 1, requestId: rid() })).status === 400);
   check('buying food without coins is refused', (await poor('/api/action', { type: 'foodbag', tier: 0, n: 1, requestId: rid() })).status === 400);
@@ -127,6 +155,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('use all food runs many times', train.status === 200 && train.body.r.runs > 1 && train.body.state.owned.blade.lv > blade.lv, train.body.r);
 
   console.log('Test panel and concurrency');
+  /* the battles above used up most of this player's request limit */
+  await sleep(10500);
   for (let i = 0; i < 3; i++) await a('/api/dev', { op: 'coins' });
   const before = (await a('/api/me')).body.state;
   const par = await Promise.all(new Array(12).fill(0).map(() => a('/api/action', { type: 'bag', n: 1, requestId: rid() })));
@@ -175,6 +205,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const meWallet = await fetch(BASE + '/api/me', { headers: { authorization: 'Bearer ' + verifyJson.session } });
   check('a wallet signs in from the copy and keeps the same player', verifyHome.status === 200 && meWallet.status === 200 && (await meWallet.json()).player.id === m1.body.player.id, verifyJson);
   check('an unlisted site cannot sign in', (await fetch(BASE + '/api/auth/guest', { method: 'POST', headers: Object.assign({ origin: EVIL }, JSON_H), body: '{}' })).status === 403);
+
+  const practice1 = await fetch(BASE + '/api/battle/start', { method: 'POST', headers: Object.assign({ origin: HOME, authorization: 'Bearer ' + guestJson.session }, JSON_H), body: JSON.stringify({ floor: 1, b: 0 }) }).then(r => r.json());
+  const practice2 = await fetch(BASE + '/api/battle/start', { method: 'POST', headers: Object.assign({ origin: HOME, authorization: 'Bearer ' + guestJson.session }, JSON_H), body: JSON.stringify({ floor: 1, b: 0 }) }).then(r => r.json());
+  check('the old copy only gets throwaway luck', !!practice1.seed && practice1.seed !== practice2.seed);
+  const copyBefore = await fetch(BASE + '/api/me', { headers: { authorization: 'Bearer ' + guestJson.session } }).then(r => r.json());
+  const practiceEnd = await fetch(BASE + '/api/battle/finish', { method: 'POST', headers: Object.assign({ origin: HOME, authorization: 'Bearer ' + guestJson.session }, JSON_H), body: JSON.stringify({ token: practice1.token, plans: [{ p0: { i: 0, target: null } }], requestId: rid() }) });
+  const practiceJson = await practiceEnd.json();
+  const copyAfter = await fetch(BASE + '/api/me', { headers: { authorization: 'Bearer ' + guestJson.session } }).then(r => r.json());
+  check('nothing the old copy plays counts, and it points to the main site', practiceEnd.status === 400 && /hamstertower\.site/.test(practiceJson.error) && copyAfter.state.top === copyBefore.state.top && copyAfter.state.battles === copyBefore.state.battles && copyAfter.state.coins === copyBefore.state.coins, practiceJson);
+  const staleTab = await a('/api/battle/finish', { token: 'practice', plans: [], requestId: rid() });
+  check('a tab of this site opened before the update is told to reload', staleTab.status === 400 && /reload/.test(staleTab.body.error), staleTab.body);
 
   console.log('Other protections');
   check('a request from another site is refused', (await a('/api/action', { type: 'sweep', requestId: rid() }, { origin: 'https://evil.example' })).status === 403);

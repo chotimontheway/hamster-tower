@@ -56,7 +56,28 @@ CREATE TABLE IF NOT EXISTS inventory (
 -- Food counts by id, added after the first release
 ALTER TABLE inventory ADD COLUMN IF NOT EXISTS foods jsonb NOT NULL DEFAULT '{}';
 
--- Log of first clears, for checking cheats. Deleted after 7 days
+-- The battle a player is in. Turns are counted here so each one can only be played once. The battle itself travels as a signed ticket
+CREATE TABLE IF NOT EXISTS fights (
+  player_id bigint PRIMARY KEY REFERENCES players (id) ON DELETE CASCADE,
+  id        text NOT NULL,
+  b         int NOT NULL,
+  n         int NOT NULL DEFAULT 0,
+  plan_hash text,
+  at        timestamptz NOT NULL DEFAULT now()
+) WITH (fillfactor = 50);
+
+-- Every legendary that drops, for checking a climb by hand
+CREATE TABLE IF NOT EXISTS rare_drops (
+  id        bigserial PRIMARY KEY,
+  player_id bigint NOT NULL,
+  source    text NOT NULL,
+  kind      text NOT NULL,
+  ref       text NOT NULL,
+  at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS rare_drops_player ON rare_drops (player_id, at);
+
+-- Log of first clears, for checking cheats. The plans are cleared after 30 days, floor and timing stay
 CREATE TABLE IF NOT EXISTS battle_log (
   id        bigserial PRIMARY KEY,
   player_id bigint NOT NULL,

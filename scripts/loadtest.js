@@ -1,11 +1,11 @@
 // Simulates many players against a running server and reports latency per route.
 // Start the target server with RATE_LIMIT_OFF=1 MIN_MS_PER_ROUND=0 ALLOW_GUEST=1 ALLOW_TRIAL=1.
-// Usage: node scripts/loadtest.js --base=http://localhost:3100 --users=10000 --fight=90 --seconds=120
+// Usage: node scripts/loadtest.js --base=http://localhost:3100 --users=10000 --fight=30 --turn=5 --seconds=120
 const E = require('../lib/engine.generated.cjs');
 const http = require('http');
 const arg = (k, d) => { const a = process.argv.find(x => x.startsWith('--' + k + '=')); return a ? a.split('=')[1] : d; };
 const BASE = new URL(arg('base', 'http://localhost:3100'));
-const USERS = +arg('users', 1000), FIGHT = +arg('fight', 90), SECONDS = +arg('seconds', 120), SETUP_CONC = +arg('setup', 40);
+const USERS = +arg('users', 1000), FIGHT = +arg('fight', 30), TURN = +arg('turn', 5), SECONDS = +arg('seconds', 120), SETUP_CONC = +arg('setup', 40);
 const agent = new http.Agent({ keepAlive: true, maxSockets: +arg('sockets', 256) });
 const hist = {}, errors = {};
 function record(route, ms, status) {
@@ -37,17 +37,7 @@ function call(route, cookie, body, measure) {
 }
 const rid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 const unpack = st => { const G = {}; for (const k of ['coins', 'top', 'team', 'chests', 'pityE', 'pityL', 'bags', 'sweepDay', 'gifts', 'battles', 'wins', 'foods']) if (st[k] !== undefined) G[k] = st[k]; if (st.owned) G.owned = st.owned; if (st.items) G.items = st.items.map(a => ({ uid: a[0], set: a[1], slot: a[2], rar: a[3], plus: a[4] })); return G; };
-function botPlans(G, node, floors, seed) {
-  const { B } = E.startBattle(G, node, floors, { seed });
-  const plans = [];let g = 0;
-  while (!B.over && g++ < 40) {
-    const p = {};
-    E.alive(B, 'p').forEach(u => { p[u.id] = { i: E.canPick(B, u.id, 2) ? 2 : E.canPick(B, u.id, 1) ? 1 : 0, target: null }; });
-    plans.push(JSON.parse(JSON.stringify(p)));
-    E.runRound(B, p);
-  }
-  return plans;
-}
+const botPlan = B => { const p = {}; E.alive(B, 'p').forEach(u => { p[u.id] = { i: E.canPick(B, u.id, 2) ? 2 : E.canPick(B, u.id, 1) ? 1 : 0, target: null }; }); return p; };
 async function pool(n, conc, fn) {
   let i = 0;
   await Promise.all(new Array(conc).fill(0).map(async () => { while (i < n) { const k = i++; await fn(k); } }));
@@ -80,7 +70,7 @@ function report(label, secs) {
     users[k] = { cookie, G: unpack(me.body.state), cycle: 0 };
     if (k && k % 2000 === 0) console.log(`  ${k} players ready`);
   });
-  console.log(`Players ready in ${((Date.now() - t0) / 1000).toFixed(0)} s. Each one fights every ${FIGHT} s on average for ${SECONDS} s.`);
+  console.log(`Players ready in ${((Date.now() - t0) / 1000).toFixed(0)} s. Each one plays a turn every ${TURN} s and rests ${FIGHT} s between battles, for ${SECONDS} s.`);
   Object.keys(hist).forEach(k => delete hist[k]);Object.keys(errors).forEach(k => delete errors[k]);
   let running = true, started = 0, wins = 0, losses = 0, stale = 0;
   const merge = (u, st) => { Object.assign(u.G, unpack(st)); };
@@ -88,16 +78,21 @@ function report(label, secs) {
     await new Promise(r => setTimeout(r, Math.random() * FIGHT * 1000));
     while (running) {
       const floor = Math.max(1, Math.min(u.G.top, floors.length));
-      const s = await call('/api/battle/start', u.cookie, { floor, b: u.G.battles });
+      const s = await call('/api/fight/start', u.cookie, { floor });
       started++;
+      if (s.status === 200) {
+        let B = s.body.B, token = s.body.token, f = null, g = 0;
+        while (running && !B.over && g++ < 40) {
+          await new Promise(r => setTimeout(r, TURN * 1000 * (.7 + Math.random() * .6)));
+          if (!running) break;
+          f = await call('/api/fight/turn', u.cookie, { token, plan: botPlan(B) });
+          if (f.status !== 200) { stale++; break; }
+          B = f.body.B;token = f.body.token;
+        }
+        if (f && f.status === 200 && f.body.state) { merge(u, f.body.state); if (f.body.over === 'win') wins++; else losses++; }
+      }
       await new Promise(r => setTimeout(r, FIGHT * 1000 * (.7 + Math.random() * .6)));
       if (!running) break;
-      if (s.status === 200) {
-        const plans = botPlans(u.G, floors[floor - 1], floors, s.body.seed);
-        const f = await call('/api/battle/finish', u.cookie, { token: s.body.token, plans, requestId: rid() });
-        if (f.status === 200 && f.body.state) { merge(u, f.body.state); if (f.body.over === 'win') wins++; else losses++; }
-        else if (f.body && f.body.state) { merge(u, f.body.state); stale++; }
-      }
       u.cycle++;
       if (u.cycle % 5 === 0) {
         if (u.G.chests.some(x => x > 0)) {
@@ -122,7 +117,7 @@ function report(label, secs) {
   const tick = setInterval(() => { const n = Object.values(hist).reduce((a, b) => a + b.length, 0); console.log(`  ${((Date.now() - t1) / 1000).toFixed(0)} s: ${n} requests, wins ${wins}, losses ${losses}, stale ${stale}, errors ${Object.values(errors).reduce((a, b) => a + b, 0)}`); }, 15000);
   await new Promise(r => setTimeout(r, SECONDS * 1000));
   running = false;clearInterval(tick);
-  report(`${USERS} players, one battle every ${FIGHT} s`, SECONDS);
+  report(`${USERS} players, a turn every ${TURN} s, ${FIGHT} s between battles`, SECONDS);
   console.log(`  battles started ${started}, wins ${wins}, losses ${losses}, stale tickets ${stale}`);
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });

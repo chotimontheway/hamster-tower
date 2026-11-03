@@ -20,7 +20,7 @@ const pct=v=>Math.round(v*100)+'%';
 const TRAITS={fly:'Flying, 15% dodge',hidden:'Hides its moves',boom:'Explodes on death',first:'Always acts first',thorns:'Thorns',taunt:'Starts with Taunt',regen:'Regenerates',revive:'Revives once'};
 const TIME_STR=t=>new Date(t*1000).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'});
 let G=null,BT=null,SP=null;
-const UI={tryN:0,view:'login',sheet:null,sheetIn:false,block:null,tab:'pet',invTab:'chest',filter:'all',limit:120,sell:{n:true,r:false,e:false,l:false},sellAsk:false,result:null,wipeAsk:false,lastTry:null,busy:false,mismatch:0};
+const UI={tryN:0,view:'login',sheet:null,sheetIn:false,block:null,tab:'pet',invTab:'chest',filter:'all',limit:120,sell:{n:true,r:false,e:false,l:false},sellAsk:false,result:null,wipeAsk:false,lastTry:null,busy:false};
 /* SERVER CALLS */
 const newReqId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,10);
 /* empty when the site and the API share an address. The static copy hosted on IPFS calls the API elsewhere, so it keeps a signed ticket instead of a cookie */
@@ -313,10 +313,10 @@ const nameOf=id=>uById(BT.B,id).n;
 const artU=s=>s.side==='p'?'pet_'+s.ref:artOf(s.ref);
 async function enterBattle(node,opts){
   opts=opts||{};
-  let token=null;
-  if(!opts.sandbox){const j=await api('/api/battle/start',{floor:node.floor,b:G.battles});token=j.token;opts=Object.assign({},opts,{seed:j.seed});}
-  const r=startBattle(G,node,FLOORS,opts);
-  BT={B:r.B,node,sandbox:!!opts.sandbox,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token,plans:[],reqId:newReqId()};
+  /* practice runs on this device and counts for nothing. A real battle is played on the server */
+  const r=opts.sandbox?startBattle(G,node,FLOORS,opts):await api('/api/fight/start',{floor:node.floor});
+  const minMs=r.minMs||0;
+  BT={B:r.B,node,sandbox:!!opts.sandbox,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token:r.token||null,turns:0,minMs,nextAt:Date.now()+minMs,sending:null,end:null};
   UI.view='battle';UI.sheet=null;
   tipHide();renderBattle();window.scrollTo(0,0);
   if(G.battles<4)logLine('Pick a skill for each pet, tap an enemy to choose a target, then press Fight.');
@@ -576,30 +576,37 @@ async function play(evs){
   startPlan();
 }
 function leaveBattle(){WX.stop();FX.clear();BT=null;}
-/* the battle runs on this device for instant feedback; the server replays it and its result is the real one */
-async function endBattle(){
-  const b=BT,B=b.B;
-  const out={win:B.over==='win',res:null,floor:B.node.floor,boss:B.node.boss,sandbox:b.sandbox,node:b.node,localOver:B.over};
-  if(!b.sandbox){
-    logLine('Saving the result...');
-    out.finish={token:b.token,plans:b.plans,requestId:b.reqId};
-    await saveResult(out);
-  }
-  if(BT!==b)return;
-  UI.result=out;leaveBattle();UI.view='result';UI.block=null;render();window.scrollTo(0,0);
-  if(!out.error){SND.play(out.win?'win':'lose');if(out.win&&out.res&&out.res.coins)setTimeout(()=>SND.play('coins'),760);}
-}
-async function saveResult(out){
+/* the page only learns a turn's luck after sending the plan. If an answer gets lost the same plan goes again, it is the only one the server still accepts */
+async function fightTurn(me){
+  me.playing=true;markSel();renderPanel();
+  if(!me.sending)me.sending=JSON.parse(JSON.stringify(me.plan));
   try{
-    const j=await api('/api/battle/finish',out.finish);
-    if(j.state)applyState(j.state);
-    if(j.over)out.win=j.over==='win';
-    out.res=j.res||null;out.saved=true;out.dup=!!j.dup;out.error=null;
-    if(j.over&&j.over!==out.localOver)UI.mismatch++;
+    let j=null;
+    for(let i=0;!j;i++){
+      const hold=me.nextAt-Date.now();
+      if(hold>0)await new Promise(r=>setTimeout(r,hold));
+      try{j=await api('/api/fight/turn',{token:me.token,plan:me.sending});}
+      catch(e){if(!e.data||!e.data.slow||i>=6)throw e;me.nextAt=Date.now()+200;}
+    }
+    if(BT!==me)return;
+    me.sending=null;me.B=j.B;me.token=j.token||null;me.turns++;me.nextAt=Date.now()+me.minMs;
+    if(j.over)me.end=j;
+    play(j.ev);
   }catch(e){
-    if(e.data&&e.data.state)applyState(e.data.state);
-    out.error=e.message||'The result could not be saved';out.saved=e.status>=400&&e.status<500;
+    if(BT!==me)return;
+    me.playing=false;
+    if(e.status>=400&&e.status<500&&e.status!==429){leaveBattle();UI.view='tower';render();window.scrollTo(0,0);}
+    else{markSel();renderPanel();}
+    fail(e);
   }
+}
+/* the server has already booked the result by the time the last turn plays out */
+function endBattle(){
+  const b=BT,B=b.B,e=b.end;
+  const out={win:B.over==='win',res:e&&e.res||null,floor:B.node.floor,boss:B.node.boss,sandbox:b.sandbox,node:b.node,saved:!!e,dup:!!(e&&e.dup)};
+  if(e&&e.state)applyState(e.state);
+  UI.result=out;leaveBattle();UI.view='result';UI.block=null;render();window.scrollTo(0,0);
+  SND.play(out.win?'win':'lose');if(out.win&&out.res&&out.res.coins)setTimeout(()=>SND.play('coins'),760);
 }
 function chestCards(list,startDelay){
   const m=[0,0,0,0,0];list.forEach(t=>{m[t]++;});
@@ -608,7 +615,6 @@ function chestCards(list,startDelay){
 function viewResult(){
   const r=UI.result;
   if(!r)return '';
-  if(r.error)return `<section class="res">${pic('hurt_pet','')}<h1>This battle was not saved</h1><p>${r.error}</p><div class="btns">${r.saved?'':'<button class="btn big" data-act="res-retry">Try saving again</button>'}<button class="btn ghost" data-act="nav" data-v="tower">Back to the tower</button></div></section>`;
   if(r.sandbox)return `<section class="res ${r.win?'win':''}">${pic(r.win?'win_pet':'hurt_pet','')}<h1>${r.win?'Practice won':'Practice lost'}</h1><p>Practice battles give no rewards.</p><div class="btns"><button class="btn" data-act="try-again">Fight again</button><button class="btn ghost" data-act="nav" data-v="codex">Back to the Codex</button></div></section>`;
   if(r.win&&!r.res)return `<section class="res win">${pic('win_pet','')}<h1>Battle saved</h1><p>This battle was already recorded.</p><div class="btns"><button class="btn big" data-act="nav" data-v="tower">Back to the tower</button></div></section>`;
   if(!r.win){
@@ -1243,7 +1249,7 @@ function codexRules(){
       <li>Hover over enemies, pets, skills or effects for details. On a phone, press and hold.</li>
       <li>A full Rage bar unlocks the big skill. Attacking and being hit both build Rage.</li>
       <li>Melee attacks and many enemy attacks only reach the front row. The first pet in your team is the front row.</li>
-      <li>Cleared floors stay cleared. Losing costs nothing, so replay as much as you like for coins and chests.</li>
+      <li>Cleared floors stay cleared. Losing costs nothing, so replay as much as you like for coins and chests. Leaving a battle after its first turn counts as a loss, and every new try has new luck.</li>
       <li>Chests go to your inventory and open from there. Use Sweep once per day to collect rewards from cleared floors.</li>
       <li>Coins buy food and blind bags in the Shop. Feed a hamster to 100% and run the wheel to earn levels.</li>
       <li>On a keyboard, 1, 2 and 3 pick a skill, Enter fights, Tab moves between buttons, Escape closes or skips, and M turns the sound on or off.</li></ol></section>
@@ -1318,19 +1324,18 @@ const ACT={
   wallet(){UI.walletWait=null;askWallets();openSheet({type:'wallets'});},
   'wallet-pick'(d){pickWallet(+d.i);},
   async logout(){await api('/api/auth/logout',{});setTicket(null);if(BT)leaveBattle();G=null;PLAYER=null;UI.sheet=null;UI.ranks=null;UI.view='login';render();},
-  async 'res-retry'(){const r=UI.result;if(!r||!r.finish)return;await saveResult(r);render();},
   'to-chests'(){UI.view='items';UI.invTab='chest';UI.sheet=null;UI.result=null;render();window.scrollTo(0,0);},
   enter(d){const f=+d.f;if(f>G.top+1||!FLOORS[f-1])return;UI.result=null;return enterBattle(FLOORS[f-1]);},
   pick(d){if(!BT||BT.playing)return;const i=+d.i;if(!canPick(BT.B,d.u,i))return;BT.plan[d.u].i=i;BT.focus=d.u;const sk=PETS[uById(BT.B,d.u).ref].skills[i];if(sk.tgt!=='foe')nextFocus();refreshPlan();},
   focus(d){if(!BT||BT.playing)return;const u=uById(BT.B,d.id);if(!u||!u.alive)return;BT.focus=d.id;refreshPlan();},
   target(d){if(!BT||BT.playing)return;const pl=BT.plan[BT.focus];if(!pl)return;pl.target=d.id;BT.lastT[BT.focus]=d.id;const sk=PETS[uById(BT.B,BT.focus).ref].skills[pl.i];if(sk.tgt==='foe')nextFocus();refreshPlan();},
-  fight(){if(!BT||BT.playing||BT.B.over)return;SND.play('go');BT.plans.push(JSON.parse(JSON.stringify(BT.plan)));const ev=runRound(BT.B,BT.plan);play(ev);},
+  fight(){if(!BT||BT.playing||BT.B.over)return;SND.play('go');if(!BT.sandbox)return fightTurn(BT);BT.turns++;play(runRound(BT.B,BT.plan));},
   speed(){PREF.speed=speed()>=3?1:speed()+1;savePref();const b=$('#spd');if(b)b.textContent='x'+speed();},
   quality(){const l=(FX.Q.level+2)%3;FX.setLevel(l,true);PREF.fxLevel=l;savePref();const b=$('#qbtn');if(b)b.textContent=l===2?'High':l===1?'Medium':'Low';WX.reseed();},
-  /* once a turn has been fought, leaving by accident would lose the battle, so it takes a second tap */
+  /* once a turn has been fought, leaving counts as a loss, so it takes a second tap */
   leave(d,t){
-    if(BT&&BT.plans.length&&!UI.leaveAsk){
-      UI.leaveAsk=true;t.textContent='Tap again to leave';t.classList.add('warn');
+    if(BT&&BT.turns&&!UI.leaveAsk){
+      UI.leaveAsk=true;t.textContent=BT.sandbox?'Tap again to leave':'Tap again to give up';t.classList.add('warn');
       setTimeout(()=>{UI.leaveAsk=false;const b=$('#leave');if(b){b.textContent='Leave';b.classList.remove('warn');}},2600);
       return;
     }
@@ -1462,7 +1467,7 @@ async function boot(){
     CFG=c;
     try{await afterLogin();}catch(e){if(e.status===401){UI.view='login';render();}else throw e;}
   }catch(e){
-    $('#app').innerHTML=`<main class="login gut"><div class="login-box"><h1>The tower could not open</h1><p>${(e&&e.message)||'Something went wrong'}</p><div class="btns"><button class="btn" data-act="reload">Try again</button></div></div></main>`;
+    $('#app').innerHTML=`<main class="login gut"><div class="login-box"><h1>The tower could not open</h1><p>${esc((e&&e.message)||'Something went wrong')}</p><div class="btns"><button class="btn" data-act="reload">Try again</button></div></div></main>`;
   }
   /* new floors: read through the CDN, so a crowd of players never reaches the database */
   setInterval(async()=>{
