@@ -72,7 +72,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const coins1 = last.body.state.coins, battles1 = last.body.state.battles;
   const again1 = await a('/api/fight/turn', { token: lastTok, plan: lastPlan });
   check('sending the last turn again cannot pay twice', again1.status === 200 && again1.body.dup === true && again1.body.state.coins === coins1 && again1.body.state.battles === battles1, again1.body);
-  check('a finished battle cannot go on', (await a('/api/fight/turn', { token: s2.body.token, plan: p0 })).status === 409);
+  check('a finished battle cannot go on', (await a('/api/fight/turn', { token: s2.body.token, plan: { p0: { i: 0, target: 'e0' } } })).status === 409);
   const lv = client();await lv('/api/auth/guest', {});
   const b0 = (await lv('/api/me')).body.state.battles;
   const e1 = await lv('/api/fight/start', { floor: 1 }), e2 = await lv('/api/fight/start', { floor: 1 });
@@ -270,6 +270,178 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const agedWalletJson = await agedWallet.json();
   check('a wallet session is not extended, a wallet can sign in again', agedWallet.status === 200 && !agedWallet.headers.get('set-cookie') && !agedWalletJson.session, agedWalletJson.player);
   check('an expired session is still refused', (await fetch(BASE + '/api/me', { headers: { cookie: 'ht_s=' + signToken({ p: g4Id, exp: Date.now() - 1000 }) } })).status === 401);
+
+  /* plays a battle to its end with a plan function, floors and challenge alike */
+  const playOut = async (c, st, planOf) => {
+    let B = st.body.B, tok = st.body.token, last = null, g = 0;
+    while (!B.over && g++ < 80) {
+      await sleep(st.body.minMs + 30);
+      const req = { token: tok, plan: (planOf || plainPlan)(B) };
+      last = await c('/api/fight/turn', req);
+      last.req = req;
+      if (last.status !== 200) break;
+      B = last.body.B;tok = last.body.token;
+    }
+    return last;
+  };
+  const guest = async () => { const c = client(); await c('/api/auth/guest', {}); return c; };
+  const smartPlan = B => { const p = {}; E.alive(B, 'p').forEach(u => { const foes = E.alive(B, 'e'); p[u.id] = { i: E.canPick(B, u.id, 2) ? 2 : E.canPick(B, u.id, 1) ? 1 : 0, target: (foes.find(x => x.mark && x.mark !== u.el) || E.minBy(foes, E.hpPct)).id }; }); return p; };
+
+  console.log("Today's Challenge");
+  const anonDaily = client();
+  check('anyone can read the challenge and the CDN can keep it', ((await fetch(BASE + '/api/daily')).headers.get('cache-control') || '').includes('s-maxage'));
+  check('starting it and reading your own day needs a sign in', (await anonDaily('/api/daily/start', {})).status === 401 && (await anonDaily('/api/daily/me')).status === 401);
+  const pub1 = (await fetch(BASE + '/api/daily').then(r => r.json())), pub2 = (await fetch(BASE + '/api/daily?d=' + E.dayKey(Date.now())).then(r => r.json())), ch = pub1.ch;
+  check('it has one team and one fight, from a real round', ch.team.length === 3 && new Set(ch.team).size === 3 && ch.team.every(id => E.PETS[id]) && ch.node.enemies.length === 3 && floors.some(f => f.round === ch.node.round && f.hash === ch.node.hash), ch);
+  check('it is the biggest round of the day before, or the newest one if the hamster did not run', (() => {
+    const day = Date.parse(ch.day + 'T00:00:00Z') / 1000, yesterday = floors.filter(f => f.t >= day - 86400 && f.t < day);
+    return yesterday.length ? ch.node.work === Math.max(...yesterday.map(f => f.work)) : ch.node.round === floors.filter(f => f.t < day).pop().round;
+  })(), ch.node);
+  check('the chest follows how much the hamster ran', ch.chest === (ch.work >= 12000 ? 3 : ch.work >= 9000 ? 2 : 1), { work: ch.work, chest: ch.chest });
+  check('the challenge stays the same through the day', JSON.stringify(pub1.ch) === JSON.stringify(pub2.ch));
+  const { makeDaily } = require('../lib/daily');
+  const others = ['2026-12-01', '2026-12-02', '2026-12-03', '2026-12-04', '2026-12-05', '2026-12-06'].map(d => makeDaily(d, floors));
+  check('other days get other teams', new Set(others.map(x => x.team.join())).size >= 4, others.map(x => x.team.join()));
+  check('building a day gives the same result every time, on every server', JSON.stringify(makeDaily('2026-12-01', floors)) === JSON.stringify(others[0]));
+  const d1 = await guest(), d2 = await guest();
+  await d2('/api/dev', { op: 'pets' });await d2('/api/dev', { op: 'jump', n: 200 });await d2('/api/action', { type: 'team', team: ['sandman', 'thor', 'poseidon'], requestId: rid() });
+  const ds1 = await d1('/api/daily/start', {}), ds2 = await d2('/api/daily/start', {});
+  const unitLine = B => JSON.stringify(B.units.map(u => [u.ref, u.hp, u.atk, u.def, u.spd]));
+  check('it starts', ds1.status === 200 && ds1.body.B.units.length === 6 && !!ds1.body.init && ds1.body.node.daily === true, ds1.body);
+  check('a new guest and a strong climber get exactly the same battle', unitLine(ds1.body.B) === unitLine(ds2.body.B), [unitLine(ds1.body.B), unitLine(ds2.body.B)]);
+  const dt = ticketBody(ds1.body.token);
+  check('no future luck reaches the page here either', !('rng' in ds1.body.B) && !('rng' in dt.B) && !('seed' in ds1.body) && !('seed' in dt));
+  check('opening it costs no try', (await d1('/api/daily/me')).body.left === E.DAILY_TRIES);
+  await d1('/api/daily/start', {});
+  check('opening it again costs no try', (await d1('/api/daily/me')).body.left === E.DAILY_TRIES);
+  const ds3 = await d1('/api/daily/start', {});
+  await sleep(ds3.body.minMs + 40);
+  const p1 = smartPlan(ds3.body.B), dturn = await d1('/api/fight/turn', { token: ds3.body.token, plan: p1 });
+  check('the first turn uses a try', dturn.status === 200 && (await d1('/api/daily/me')).body.left === E.DAILY_TRIES - 1, dturn.body);
+  const resent = await d1('/api/fight/turn', { token: ds3.body.token, plan: p1 });
+  check('sending that turn again costs nothing and gives the same answer', resent.status === 200 && JSON.stringify(resent.body.ev) === JSON.stringify(dturn.body.ev) && (await d1('/api/daily/me')).body.left === E.DAILY_TRIES - 1);
+  check('another plan for that turn is refused', (await d1('/api/fight/turn', { token: ds3.body.token, plan: { p0: { i: 0, target: 'e1' } } })).status === 409);
+  const bBefore = (await d1('/api/me')).body.state.battles;
+  const ds4 = await d1('/api/daily/start', {});
+  check('leaving loses the try, not a battle', (await d1('/api/daily/me')).body.left === E.DAILY_TRIES - 1 && (await d1('/api/me')).body.state.battles === bBefore);
+  check('the left battle is dead', dturn.body.token ? (await d1('/api/fight/turn', { token: dturn.body.token, plan: p1 })).status === 409 : true);
+  for (let i = 0; i < 2; i++) { const s = await d1('/api/daily/start', {}); await sleep(s.body.minMs + 40); await d1('/api/fight/turn', { token: s.body.token, plan: smartPlan(s.body.B) }); }
+  check('all tries used', (await d1('/api/daily/me')).body.left === 0);
+  check('no more tries means no more battles', (await d1('/api/daily/start', {})).status === 409);
+  check('another player still has their own tries', (await d2('/api/daily/me')).body.left === E.DAILY_TRIES);
+  await sleep(10500);
+  let winner = null, win = null, winRow = null;
+  for (let i = 0; i < 12 && !win; i++) {
+    const c = await guest(), st = await c('/api/daily/start', {}), before = (await c('/api/me')).body.state, out = await playOut(c, st, smartPlan);
+    if (out && out.status === 200 && out.body.over === 'win') { winner = c;win = out;winRow = before; }
+    else if (out && out.status === 200) check('a lost challenge saves no score', out.body.daily.won === false && out.body.daily.best === null && out.body.daily.reward === null, out.body.daily);
+  }
+  check('a test player can win it', !!win);
+  const dw = win.body.daily, meWin = (await winner('/api/me')).body.state;
+  check('the win is saved with its rounds and HP', dw.won === true && dw.best.rounds === win.body.rounds && dw.best.hp === dw.hp && dw.hp > 0 && dw.hp <= 100, dw);
+  check('the first win pays the chest of the day', dw.reward && dw.reward.tier === ch.chest && meWin.chests[ch.chest] === winRow.chests[ch.chest] + 1, { dw, chests: meWin.chests });
+  check('the challenge does not touch the climb', meWin.top === winRow.top && meWin.battles === winRow.battles && meWin.wins === winRow.wins && meWin.coins === winRow.coins, meWin);
+  check('it gives a rank', dw.rank >= 1, dw);
+  check('it says the chest is collected', dw.paid === true && (await winner('/api/daily/me')).body.paid === true);
+  const reWin = await winner('/api/fight/turn', win.req), meRe = (await winner('/api/me')).body.state;
+  check('sending the winning turn again repeats the answer and pays nothing more', reWin.status === 200 && reWin.body.daily.reward && reWin.body.daily.reward.tier === ch.chest && meRe.chests[ch.chest] === meWin.chests[ch.chest], { r: reWin.body.daily, chests: meRe.chests });
+  check('a second win today pays nothing', (() => { const G = { gifts: { daily: { d: ch.day, f: 'other' } }, chests: [0, 0, 0, 0, 0] }; const r = require('../lib/daily').payChest(G, ch.day, 'second', 2); return r === null && G.chests[2] === 0; })());
+  check('a battle left over from yesterday pays nothing after today was paid', (() => { const G = { gifts: { daily: { d: '2026-12-02', f: 'x' } }, chests: [0, 0, 0, 0, 0] }; return require('../lib/daily').payChest(G, '2026-12-01', 'y', 2) === null && G.chests[2] === 0; })());
+  check('a new day pays again', (() => { const G = { gifts: { daily: { d: '2026-12-01', f: 'x' } }, chests: [0, 0, 0, 0, 0] }; const r = require('../lib/daily').payChest(G, '2026-12-02', 'y', 2); return r && r.tier === 2 && G.chests[2] === 1; })());
+  const dbUrl = process.env.DATABASE_URL;
+  if (dbUrl) {
+    const daily = require('../lib/daily'), { closeDb, q: dbq } = require('../lib/db');
+    const c = await guest(), id = (await c('/api/me')).body.player.id, day = ch.day;
+    await dbq('INSERT INTO daily_scores (day, player_id, tries) VALUES ($1, $2, 1)', [day, id]);
+    await daily.saveBest(day, id, 8, 40);
+    await daily.saveBest(day, id, 9, 99);
+    let m = await daily.myDaily(id, day);
+    check('a worse win does not replace the best', m.best.rounds === 8 && m.best.hp === 40, m.best);
+    await daily.saveBest(day, id, 8, 70);m = await daily.myDaily(id, day);
+    check('the same rounds with more HP does', m.best.hp === 70, m.best);
+    await daily.saveBest(day, id, 6, 10);m = await daily.myDaily(id, day);
+    check('fewer rounds always does', m.best.rounds === 6 && m.best.hp === 10, m.best);
+    /* a battle opened with a try left, and the tries run out before its first turn: the turn is refused however often it is sent */
+    const late = await guest(), lateId = (await late('/api/me')).body.player.id, lateS = await late('/api/daily/start', {});
+    await dbq('INSERT INTO daily_scores (day, player_id, tries) VALUES ($1, $2, $3)', [day, lateId, E.DAILY_TRIES]);
+    await sleep(lateS.body.minMs + 40);
+    const lateP = smartPlan(lateS.body.B), late1 = await late('/api/fight/turn', { token: lateS.body.token, plan: lateP }), late2 = await late('/api/fight/turn', { token: lateS.body.token, plan: lateP });
+    check('with no tries left the first turn is refused, and sending it again changes nothing', late1.status === 409 && late2.status === 409 && !late1.body.slow && (await daily.myDaily(lateId, day)).left === 0, [late1.status, late2.status]);
+    const race = await guest(), raceId = (await race('/api/me')).body.player.id, raceS = await race('/api/daily/start', {});
+    await sleep(raceS.body.minMs + 40);
+    const raceP = smartPlan(raceS.body.B), raceR = await Promise.all(new Array(5).fill(0).map(() => race('/api/fight/turn', { token: raceS.body.token, plan: raceP })));
+    check('the same first turn sent five times at once uses one try', raceR.every(r => r.status === 200) && (await daily.myDaily(raceId, day)).left === E.DAILY_TRIES - 1, raceR.map(r => r.status));
+    await dbq(`INSERT INTO rare_drops (player_id, source, kind, ref) VALUES ($1, 'chest 3', 'pet', 'sandman')`, [id]);
+    await dbq('UPDATE players SET top = 1, top_at = now() WHERE id = $1', [id]);
+    const shown = await (await fetch(BASE + '/api/player?id=' + id)).json();
+    check('a logged legendary shows on the public page', shown.drops.length === 1 && shown.drops[0].ref === 'sandman' && shown.drops[0].source === 'chest 3', shown.drops);
+    await closeDb();
+  }
+  await d2('/api/dev', { op: 'daily' });
+  const s5 = await d2('/api/daily/start', {});await sleep(s5.body.minMs + 40);await d2('/api/fight/turn', { token: s5.body.token, plan: smartPlan(s5.body.B) });
+  await d2('/api/dev', { op: 'daily' });
+  const resetDay = (await d2('/api/daily/me')).body;
+  check('the test panel can reset the day', resetDay.left === E.DAILY_TRIES && resetDay.paid === false, resetDay);
+  /* a floor long enough that no battle ends on its first turn */
+  const d3 = await guest();await d3('/api/dev', { op: 'jump', n: 60 });
+  const fs5 = await d3('/api/fight/start', { floor: 61 });await sleep(fs5.body.minMs + 40);
+  const fs5t = await d3('/api/fight/turn', { token: fs5.body.token, plan: plainPlan(fs5.body.B) });
+  const bb = (await d3('/api/me')).body.state.battles;
+  await d3('/api/daily/start', {});
+  check('leaving a floor battle for the challenge still counts as a loss', !!fs5t.body.token && (await d3('/api/me')).body.state.battles === bb + 1, fs5t.body.over);
+  check('the old floor battle is dead', (await d3('/api/fight/turn', { token: fs5t.body.token, plan: plainPlan(fs5t.body.B) })).status === 409);
+
+  console.log('The public page of a climber');
+  const cl = await guest(), clId = (await cl('/api/me')).body.player.id, clOut = await playOut(cl, await cl('/api/fight/start', { floor: 1 }));
+  const prof = await fetch(BASE + '/api/player?id=' + clId), pj = await prof.json();
+  check('anyone can read it and the CDN can keep it', prof.status === 200 && (prof.headers.get('cache-control') || '').includes('s-maxage'));
+  check('it shows the climb', clOut.body.over === 'win' && pj.top === 1 && pj.battles === 1 && pj.wins === 1 && pj.guest === true && pj.rank >= 1 && pj.team.length === 1 && pj.team[0].id === 'blade' && pj.clears === 1 && pj.msPerRound > 0, pj);
+  check('it holds nothing private', !('coins' in pj) && !('foods' in pj) && !('rs' in pj) && !JSON.stringify(pj).includes('"rs"') && !('wallet' in pj), Object.keys(pj));
+  check('a wrong id is refused', (await fetch(BASE + '/api/player?id=abc')).status === 400 && (await fetch(BASE + '/api/player?id=-1')).status === 400 && (await fetch(BASE + '/api/player')).status === 400);
+  check('an unknown player is not found', (await fetch(BASE + '/api/player?id=99999999')).status === 404);
+  const never = await guest();
+  check('someone who never reached a board has no public page', (await fetch(BASE + '/api/player?id=' + (await never('/api/me')).body.player.id)).status === 404);
+
+  console.log('The real wheel');
+  const liveRes = await fetch(BASE + '/api/live');
+  check('the wheel status can be kept by the CDN for a few seconds', (liveRes.headers.get('cache-control') || '').includes('s-maxage=8'));
+  check('it answers whether or not the wheel can be read', typeof (await liveRes.json()).known === 'boolean');
+  if (process.env.LIVE_STUB_PORT) {
+    const WHEEL = { code: 200, body: null };
+    const srv = require('http').createServer((q, s) => { s.statusCode = WHEEL.code;s.setHeader('content-type', 'application/json');s.end(JSON.stringify(WHEEL.body)); }).listen(+process.env.LIVE_STUB_PORT);
+    const wheel = (rpmMilli, work, o) => Object.assign({ schemaVersion: 1, measurement: Object.assign({ freshness: 'online', provenance: 'hardware', coreStatus: 'IDLE', rpmMilli, speedMmPerSecond: rpmMilli / 70 }, o || {}), builder: { status: 'available', queued: { openRoundWorkUnits: String(work) } } });
+    const live = async () => { await sleep(30); return fetch(BASE + '/api/live').then(r => r.json()); };
+    WHEEL.body = wheel(0, 0);let l = await live();
+    check('resting: known, not running, no bonus', l.known === true && l.running === false && l.awake === false, l);
+    WHEEL.body = wheel(62000, 0);l = await live();
+    check('running: speed and bonus', l.running === true && l.awake === true && l.rpm === 62 && l.mps > 0, l);
+    WHEEL.body = wheel(0, 120);l = await live();
+    check('stopped for a moment inside a round with work: the bonus holds', l.running === false && l.awake === true && l.work === 120, l);
+    WHEEL.body = wheel(0, 0, { coreStatus: 'ACTIVE' });l = await live();
+    check('the device saying active counts as running', l.running === true, l);
+    for (const [name, body] of [['a stale reading', wheel(62000, 5, { freshness: 'stale' })], ['a simulated reading', wheel(62000, 5, { provenance: 'simulated' })], ['a counter fault', wheel(62000, 5, { coreStatus: 'COUNTER_FAULT' })], ['an unknown API version', Object.assign(wheel(62000, 5), { schemaVersion: 2 })], ['no reading at all', { schemaVersion: 1, measurement: null }]]) {
+      WHEEL.body = body;l = await live();
+      check(name + ' is unknown, with no bonus', l.known === false && !l.awake, l);
+    }
+    WHEEL.code = 500;l = await live();
+    check('a failed read is unknown, with no bonus', l.known === false, l);
+    const firstClear = async () => { const c = await guest(); return playOut(c, await c('/api/fight/start', { floor: 1 })); };
+    let w = await firstClear();
+    check('a win pays normally when the wheel cannot be read', w.body.over === 'win' && w.body.res.coins === 33 && w.body.res.live === false, w.body.res);
+    WHEEL.code = 200;WHEEL.body = wheel(0, 0);await sleep(30);w = await firstClear();
+    check('a win pays normally while he rests', w.body.res.coins === 33 && w.body.res.live === false, w.body.res);
+    WHEEL.body = wheel(62000, 300);await sleep(30);w = await firstClear();
+    check('a win pays 20% more while he runs', w.body.res.coins === 40 && w.body.res.live === true, w.body.res);
+    srv.close();
+  }
+
+  console.log('The boards');
+  await sleep(31000);
+  const lb2 = await fetch(BASE + '/api/leaderboard').then(r => r.json());
+  check('leaderboard rows carry an id for the public page, and what the old copy reads', lb2.top.every(r => r.id && r.name && r.top > 0 && r.at > 0));
+  const pub3 = await fetch(BASE + '/api/daily').then(r => r.json());
+  const winnerId = (await winner('/api/me')).body.player.id;
+  check('the winner is on the challenge board, best first', pub3.total >= 1 && pub3.top.some(r => String(r.id) === String(winnerId)) && pub3.top.every((r, i) => !i || pub3.top[i - 1].rounds < r.rounds || (pub3.top[i - 1].rounds === r.rounds && pub3.top[i - 1].hp >= r.hp)), pub3.top.slice(0, 5));
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('Test run failed:', e); process.exit(1); });

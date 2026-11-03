@@ -474,6 +474,12 @@ function doSweep(G,floors,ms){
   const total=Math.round(base);G.coins+=total;
   return {floors:G.top,coins:total,counts};
 }
+/* TODAY'S CHALLENGE: everyone borrows the same team, so the score does not depend on chests or levels. The server picks the team and the fight, see lib/daily.js */
+const DAILY_TRIES=3,LIVE_BONUS=.2;
+function dailyG(ch){
+  const owned={};ch.team.forEach(id=>{owned[id]=Object.assign(newPet(ch.lv),{star:ch.star});});
+  return {team:ch.team,owned,items:[],battles:0,top:1e9};
+}
 function grantPet(G,rar){
   const s=G.rs;let list=PETS_LIST.filter(p=>p.rar===rar);
   if(G.bags===1){const fresh=list.filter(p=>!G.owned[p.id]);if(fresh.length)list=fresh;}

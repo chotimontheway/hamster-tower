@@ -77,6 +77,22 @@ CREATE TABLE IF NOT EXISTS rare_drops (
 );
 CREATE INDEX IF NOT EXISTS rare_drops_player ON rare_drops (player_id, at);
 
+-- Today's Challenge: the fight is saved once a day, scores keep each player's best. Scores are deleted after 30 days
+CREATE TABLE IF NOT EXISTS daily_days (
+  day text PRIMARY KEY,
+  ch  jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS daily_scores (
+  day       text NOT NULL,
+  player_id bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  tries     int NOT NULL DEFAULT 0,
+  rounds    int,
+  hp        int,
+  at        timestamptz,
+  PRIMARY KEY (day, player_id)
+) WITH (fillfactor = 70);
+CREATE INDEX IF NOT EXISTS daily_board ON daily_scores (day, rounds, hp DESC, at) WHERE rounds IS NOT NULL;
+
 -- Log of first clears, for checking cheats. The plans are cleared after 30 days, floor and timing stay
 CREATE TABLE IF NOT EXISTS battle_log (
   id        bigserial PRIMARY KEY,

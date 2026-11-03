@@ -90,6 +90,8 @@ small{font-size:12px;color:var(--muted)}
 .t-normal{background:#C9C3DE}
 .t-rule{background:#BFD0FF}
 .t-first{background:var(--gold2)}
+.t-dev{background:var(--sky)}
+.rk-dev{min-height:26px;padding:0 10px;font-size:12.5px}
 .tag.el{background:color-mix(in srgb,var(--c) 34%,#FFF6E5)}
 
 /* TOWER SCREEN */
@@ -106,6 +108,32 @@ small{font-size:12px;color:var(--muted)}
 .sweep img{width:58px;height:58px}
 .sweep h2{font-size:19px}
 .sweep p{font-size:13px;color:var(--muted)}
+/* the real wheel turns at the real speed while the hamster runs */
+.live-wheel{display:flex;width:58px;height:58px;align-items:center;justify-content:center;color:var(--line2)}
+.live.run{border-color:var(--green)}
+.live.run .live-wheel{color:var(--green)}
+.live.run .live-wheel svg{animation:live-spin var(--spin,1.6s) linear infinite}
+.live.run h2{color:var(--mint)}
+@keyframes live-spin{to{transform:rotate(360deg)}}
+.daily{border-color:var(--gold)}
+.rk-open{padding:0;text-align:inherit;text-decoration:underline dotted;text-underline-offset:3px}
+.rk-open:hover,.rk-open:focus-visible{color:var(--cream)}
+.prof-name{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.prof-pet{display:flex;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);border-radius:10px;padding:4px 10px 4px 4px}
+.prof-pet>img{width:56px;height:56px;flex:none}
+.prof-tx{display:flex;flex-direction:column;gap:2px;min-width:0}
+.prof-tx b{font:700 16px/1.15 var(--f-d)}
+.prof-gear{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.prof-gear>span{position:relative;display:inline-flex;width:32px;height:32px;border:2px solid var(--rc,var(--line2));border-radius:7px;background:var(--raise)}
+.prof-gear img{width:100%;height:100%}
+.prof-gear em{position:absolute;right:-3px;bottom:-5px;font:700 11px var(--f-d);font-style:normal;color:var(--gold2);text-shadow:0 1px 2px #000}
+.prof-drops{display:flex;flex-direction:column;gap:3px;margin:0;padding:0;list-style:none;font-size:13.5px}
+.prof-drops li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px}
+.prof-drops small{color:var(--muted)}
+.share-box{flex:none;border:3px solid var(--ink);border-radius:12px;overflow:hidden;background:var(--night)}
+.share-box img{display:block;width:100%;height:auto}
+.share-box .empty-note{border:0;aspect-ratio:40/21;display:flex;align-items:center;justify-content:center}
+.share-text{font-size:13px;color:var(--soft);overflow-wrap:anywhere}
 .tower-wrap{display:flex;flex-direction:column;align-items:stretch}
 .roof{height:46px;background:linear-gradient(#FF6F88,#C93B5A);clip-path:polygon(50% 0,100% 100%,0 100%);margin-inline:8px}
 .tower{border:4px solid var(--ink);border-radius:6px 6px 14px 14px;overflow:hidden;background:var(--card)}
@@ -445,7 +473,7 @@ small{font-size:12px;color:var(--muted)}
 .w-still .wx-tint{background:rgba(120,116,140,.22)}
 .w-glitch .wx-tint{background:repeating-linear-gradient(0deg,rgba(0,0,0,.09) 0 2px,transparent 2px 5px)}
 .w-wind .wx-tint{background:rgba(200,225,255,.08)}
-.map-box{position:relative;border:3px solid var(--ink);border-radius:12px;overflow:hidden}
+.map-box{position:relative;flex:none;border:3px solid var(--ink);border-radius:12px;overflow:hidden}
 .map-thumb{display:block;width:100%;height:auto;max-height:190px;object-fit:cover}
 .map-name{position:absolute;left:8px;bottom:6px;font-size:12px;font-weight:600;background:rgba(21,18,43,.86);border-radius:6px;padding:1px 7px}
 /* full-screen layers */

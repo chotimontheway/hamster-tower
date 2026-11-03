@@ -20,7 +20,7 @@ const pct=v=>Math.round(v*100)+'%';
 const TRAITS={fly:'Flying, 15% dodge',hidden:'Hides its moves',boom:'Explodes on death',first:'Always acts first',thorns:'Thorns',taunt:'Starts with Taunt',regen:'Regenerates',revive:'Revives once'};
 const TIME_STR=t=>new Date(t*1000).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'});
 let G=null,BT=null,SP=null;
-const UI={tryN:0,view:'login',sheet:null,sheetIn:false,block:null,tab:'pet',invTab:'chest',filter:'all',limit:120,sell:{n:true,r:false,e:false,l:false},sellAsk:false,result:null,wipeAsk:false,lastTry:null,busy:false};
+const UI={tryN:0,view:'login',sheet:null,sheetIn:false,block:null,tab:'pet',invTab:'chest',filter:'all',limit:120,sell:{n:true,r:false,e:false,l:false},sellAsk:false,result:null,wipeAsk:false,lastTry:null,busy:false,live:null,liveAt:0,daily:null,dailyAt:0,rankTab:'climb'};
 /* SERVER CALLS */
 const newReqId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,10);
 /* empty when the site and the API share an address. The static copy hosted on IPFS calls the API elsewhere, so it keeps a signed ticket instead of a cookie */
@@ -30,7 +30,7 @@ if(API_BASE){try{TICKET=localStorage.getItem(TICKET_KEY);}catch(e){}}
 const setTicket=t=>{TICKET=t;try{if(t)localStorage.setItem(TICKET_KEY,t);else localStorage.removeItem(TICKET_KEY);}catch(e){}};
 async function api(path,body){
   /* public data goes out without the ticket so the CDN can answer it */
-  const headers=Object.assign(body===undefined?{}:{'content-type':'application/json'},TICKET&&!/^\/api\/(rounds|leaderboard|config)$/.test(path)?{authorization:'Bearer '+TICKET}:{});
+  const headers=Object.assign(body===undefined?{}:{'content-type':'application/json'},TICKET&&!/^\/api\/(rounds|leaderboard|config|live|daily|player)(\?|$)/.test(path)?{authorization:'Bearer '+TICKET}:{});
   const init=Object.assign({credentials:API_BASE?'omit':'same-origin',headers},body===undefined?{}:{method:'POST',body:JSON.stringify(body)});
   let last;
   for(let i=0;i<3;i++){
@@ -192,6 +192,7 @@ function render(){
   const sh=$('.sheet');
   if(sh){if(UI.sheetIn){sh.classList.add('in');UI.sheetIn=false;const x=$('.x',sh);if(x)x.focus({preventScroll:true});}else sh.scrollTop=st;}
   $$('canvas[data-map]').forEach(c=>{const n=FLOORS[+c.dataset.map-1];if(n)drawMap(c,n,.5);});
+  if(UI.view==='tower')towerData();
 }
 function openSheet(s){UI.sheet=s;UI.sheetIn=true;UI.feedAsk=null;UI.allAsk=null;render();}
 function closeSheet(){UI.sheet=null;UI.wipeAsk=false;UI.feedAsk=null;UI.allAsk=null;render();focusOpener();}
@@ -200,7 +201,7 @@ const openerKey=t=>(t.classList[0]?'.'+t.classList[0]:'')+Object.keys(t.dataset)
 function focusOpener(){if(UI.opener&&!activeDialog()){const el=$(UI.opener);if(el)el.focus({preventScroll:true});}}
 function sheetHTML(){
   const s=UI.sheet;
-  const inner={floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial,wallets:sheetWallets,guest:sheetGuest}[s.type](s);
+  const inner={floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial,wallets:sheetWallets,guest:sheetGuest,daily:sheetDaily,player:sheetPlayer,prize:sheetPrize,share:sheetShare}[s.type](s);
   return `<div class="sheet-wrap" data-act="close-bg"><div class="sheet s-${s.type}" role="dialog" aria-modal="true"><button class="x" data-act="close" aria-label="Close">×</button>${inner}</div></div>`;
 }
 
@@ -226,6 +227,8 @@ function viewTower(){
       </div>
       ${pic('wheel_big','Squeektoshi on the wheel','hero-pet')}
     </section>
+    ${liveStrip()}
+    ${dailyCard()}
     <section class="sweep">
       ${pic(can?'chest_3':'chest_1','')}
       <div><h2>Daily Sweep</h2><p>${G.top===0?'Clear the first floor to unlock Sweep.':can?`Collect rewards from ${G.top} cleared floors right now: about ${fmt(sweepBase())} coins and a batch of chests. Once per day.`:`Already collected today. Available again in ${timeToReset()}. Replay cleared floors for more.`}</p></div>
@@ -242,6 +245,86 @@ function viewTower(){
         ${rows.join('')}
       </div>
     </section>`;
+}
+/* THE REAL WHEEL: what the hamster is doing right now. The server reads it, the CDN keeps it a few seconds */
+const WHEEL_ICON='<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true"><circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="4"/><path d="M24 4v40M4 24h40M9.9 9.9l28.2 28.2M38.1 9.9L9.9 38.1" stroke="currentColor" stroke-width="2.5"/><circle cx="24" cy="24" r="4.5" fill="currentColor"/></svg>';
+function liveText(){
+  const l=UI.live,bonus=Math.round(LIVE_BONUS*100),newest=FLOORS[FLOORS.length-1];
+  if(!l)return {c:'',t:'Squeektoshi on the wheel',d:'Checking the wheel...'};
+  if(!l.known)return {c:'',t:'Squeektoshi on the wheel',d:'The wheel cannot be read right now. Battles work as usual, without the running bonus.'};
+  if(l.running)return {c:'run',t:'Squeektoshi is running right now',d:`${fmt(l.rpm)} RPM, ${dec(l.mps)} m/s. Battle wins pay ${bonus}% more coins while he runs.`};
+  if(l.awake)return {c:'run',t:'Squeektoshi just ran',d:`${fmt(l.work)} work so far this round. Battle wins pay ${bonus}% more coins until the round ends.`};
+  return {c:'',t:'Squeektoshi is resting',d:`${newest?`He last ran ${agoText(newest.t)}. `:''}Battle wins pay ${bonus}% more coins while he runs.`};
+}
+const liveSpin=()=>{const l=UI.live;return l&&l.running&&l.rpm?clamp(60/l.rpm,.3,4)+'s':'1.6s';};
+function liveStrip(){
+  const x=liveText();
+  return `<section class="sweep live ${x.c}" id="live" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2 id="live-t">${x.t}</h2><p id="live-d">${x.d}</p></div><a class="btn ghost sm" href="https://squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a></section>`;
+}
+function applyLive(){
+  const el=$('#live');if(!el)return;
+  const x=liveText();
+  el.className='sweep live '+x.c;el.style.setProperty('--spin',liveSpin());
+  $('#live-t').textContent=x.t;$('#live-d').textContent=x.d;
+}
+async function loadLive(){
+  UI.liveAt=Date.now();
+  try{UI.live=await api('/api/live');}catch(e){UI.live={known:false};}
+  applyLive();
+}
+/* TODAY'S CHALLENGE */
+const triesText=n=>n+(n===1?' try':' tries');
+const roundsText=n=>n+(n===1?' round':' rounds');
+function dailyLine(){
+  const d=UI.daily;
+  if(!d)return 'Same team for everyone, fewest rounds wins.';
+  const m=d.me,ch=d.pub.ch;
+  if(m.best)return `Your best: ${roundsText(m.best.rounds)}${m.rank?`, rank ${fmt(m.rank)}`:''}. ${m.left?`${triesText(m.left)} left.`:`New challenge in ${timeToReset()}.`}`;
+  if(!m.left)return `No tries left. New challenge in ${timeToReset()}.`;
+  return `Same team for everyone, fewest rounds wins. ${triesText(m.left)} left, and your first win today pays a ${CHESTS[ch.chest].n}.`;
+}
+function dailyCard(){
+  const ch=UI.daily&&UI.daily.pub.ch;
+  return `<section class="sweep daily" id="daily">${pic(ch?'chest_'+(ch.chest+1):'chest_3','')}<div><h2>Today's Challenge</h2><p>${dailyLine()}</p></div><button class="btn" data-act="sheet" data-type="daily"${ch?'':' disabled'}>Open</button></section>`;
+}
+async function loadDaily(){
+  UI.dailyAt=Date.now();
+  try{
+    /* the date in the address means the CDN can never keep yesterday's challenge past midnight */
+    const [pub,me]=await Promise.all([api('/api/daily?d='+dayKey(Date.now())),api('/api/daily/me')]);
+    UI.daily={pub,me};UI.dailyAt=Date.now();
+    const el=$('#daily');
+    if(el&&!el.contains(document.activeElement))el.outerHTML=dailyCard();
+    if(UI.sheet&&UI.sheet.type==='daily')render();
+  }catch(e){if(e&&e.status===401)fail(e);}
+}
+/* the wheel and the challenge are only read while the Tower screen is open, and not more often than this */
+function towerData(){
+  if(!G)return;
+  if(Date.now()-UI.liveAt>12000)loadLive();
+  if(Date.now()-UI.dailyAt>60000)loadDaily();
+}
+function dailyRows(rows,limit,devs){
+  return rows.slice(0,limit).map((r,i)=>({r,i})).concat((devs||[]).map(r=>({r,i:-1}))).sort((a,b)=>a.r.rounds-b.r.rounds||b.r.hp-a.r.hp||a.r.at-b.r.at).map(({r,i})=>`<li class="${PLAYER&&r.name===PLAYER.name?'me':''}"><b class="num">${i<0?'':i+1}</b>${rankName(r,'d'+i)}<span class="rk-floor num">${roundsText(r.rounds)}<small>${r.hp}% HP left</small></span></li>`).join('');
+}
+function sheetDaily(){
+  const d=UI.daily,ch=d.pub.ch,n=ch.node,m=d.me,w=RULES.find(r=>r.id===n.rule),F=dailyG(ch),els=[...new Set(n.enemies.map(id=>MONS[id].el))],res=teamResonance(ch.team);
+  const team=ch.team.map((id,i)=>{const p=PETS[id],good=els.some(e=>matchup(p.el,e)>0),bad=els.some(e=>matchup(p.el,e)<0);return `<span class="mini-pet">${pic('pet_'+id,p.n)}<span>${p.n}<br><small>${i===0?'Front, ':''}Power ${fmt(petPower(petStats(F,id)))}</small><br>${good?'<span class="good">Advantage</span>':bad?'<span class="bad">Weak against</span>':'<small>Neutral</small>'}</span></span>`;}).join('');
+  return `<h2>Today's Challenge</h2>
+    <div class="map-box"><canvas class="map-thumb" data-map="${n.src}" aria-label="Map preview"></canvas><span class="map-name">${MAP_NAMES[n.map.t]}, ${TONE_NAMES[n.map.tone]}</span></div>
+    <div class="info-row">${floorTags(n)}<small class="num">Round ${n.round}, ${fmt(n.work)} work, ran at ${TIME_STR(n.t)}</small></div>
+    <p>${ch.work?`Round ${n.round} was the hamster's biggest run of the day before.`:`The hamster did not run the day before, so this comes from round ${n.round}, his latest run.`} It sets one team and one fight for everyone, so your levels and chests do not matter here. Fewest rounds wins. On a tie, the most HP left wins.</p>
+    <p class="hint">Weather, ${w.n}: ${w.d}</p>
+    <div class="sec-t">Your borrowed team, level ${ch.lv} with ${ch.star} stars</div>
+    <div class="mini-team">${team}</div>
+    ${res.length?`<div class="res-chips">${res.map(r=>`<span class="res-chip"><b>${r.n}.</b> ${r.d}</span>`).join('')}</div>`:''}
+    <div class="sec-t">Enemies (hover a move for details, on a phone press and hold)</div>
+    <div class="stack" style="gap:8px">${n.enemies.map(id=>enemyCard(id)).join('')}</div>
+    <div class="sec-t">Reward</div>
+    <dl class="kv"><dt>First win today</dt><dd>${m.paid?'Already collected':`1 ${CHESTS[ch.chest].n}`}</dd><dt>Chest</dt><dd>The hamster did ${fmt(ch.work)} work the day before. The more he runs, the better the chest.</dd>${m.best?`<dt>Your best</dt><dd class="num">${roundsText(m.best.rounds)}, ${m.best.hp}% HP left${m.rank?`, rank ${fmt(m.rank)}`:''}</dd>`:''}</dl>
+    ${d.pub.top.length?`<div class="sec-t">Today's best</div><ol class="rank">${dailyRows(d.pub.top,5)}</ol>`:''}
+    <div class="btns"><button class="btn big" data-act="daily-go"${m.left?'':' disabled'}>${m.left?`Start, ${triesText(m.left)} left`:`New challenge in ${timeToReset()}`}</button><button class="btn ghost" data-act="rank-today">Full board</button></div>
+    <p class="note">A try is used when you play its first turn. Leaving after that loses the try. A new challenge starts at 00:00 UTC.</p>`;
 }
 function floorTags(n){
   const t=[];
@@ -314,9 +397,9 @@ const artU=s=>s.side==='p'?'pet_'+s.ref:artOf(s.ref);
 async function enterBattle(node,opts){
   opts=opts||{};
   /* practice runs on this device and counts for nothing. A real battle is played on the server */
-  const r=opts.sandbox?startBattle(G,node,FLOORS,opts):await api('/api/fight/start',{floor:node.floor});
+  const r=opts.sandbox?startBattle(G,node,FLOORS,opts):opts.daily?await api('/api/daily/start',{}):await api('/api/fight/start',{floor:node.floor});
   const minMs=r.minMs||0;
-  BT={B:r.B,node,sandbox:!!opts.sandbox,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token:r.token||null,turns:0,minMs,nextAt:Date.now()+minMs,sending:null,end:null};
+  BT={B:r.B,node:r.node||node,sandbox:!!opts.sandbox,daily:!!opts.daily,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token:r.token||null,turns:0,minMs,nextAt:Date.now()+minMs,sending:null,end:null};
   UI.view='battle';UI.sheet=null;
   tipHide();renderBattle();window.scrollTo(0,0);
   if(G.battles<4)logLine('Pick a skill for each pet, tap an enemy to choose a target, then press Fight.');
@@ -338,7 +421,7 @@ function renderBattle(){
   setBg('none');
   $('#app').innerHTML=`<div class="bt">
     <header class="bt-top gut"><div class="bt-top-in">
-      <h1>${BT.sandbox?'Practice':'Floor '+B.node.floor}</h1>
+      <h1>${BT.sandbox?'Practice':BT.daily?"Today's Challenge":'Floor '+B.node.floor}</h1>
       <div class="bt-tags">${BT.sandbox?'<span class="tag">No rewards</span>':floorTags(n)}<small class="num" id="rnd"></small></div>
       <div class="bt-order" id="order" aria-label="Turn order by Speed"></div>
       <div class="bt-ctl"><button class="btn ghost sm" data-act="quality" id="qbtn" title="Effect quality">${lv===2?'High':lv===1?'Medium':'Low'}</button><button class="btn ghost sm" data-act="speed" id="spd">x${speed()}</button>${soundBtn()}<button class="btn ghost sm" data-act="leave" id="leave">Leave</button></div>
@@ -603,8 +686,9 @@ async function fightTurn(me){
 /* the server has already booked the result by the time the last turn plays out */
 function endBattle(){
   const b=BT,B=b.B,e=b.end;
-  const out={win:B.over==='win',res:e&&e.res||null,floor:B.node.floor,boss:B.node.boss,sandbox:b.sandbox,node:b.node,saved:!!e,dup:!!(e&&e.dup)};
+  const out={win:B.over==='win',res:e&&e.res||null,floor:B.node.floor,boss:B.node.boss,sandbox:b.sandbox,node:b.node,saved:!!e,dup:!!(e&&e.dup),daily:b.daily?e.daily:null,rounds:e&&e.rounds,team:B.units.filter(u=>u.side==='p').map(u=>u.ref)};
   if(e&&e.state)applyState(e.state);
+  if(b.daily&&UI.daily){UI.daily.me=e.daily;UI.dailyAt=0;}
   UI.result=out;leaveBattle();UI.view='result';UI.block=null;render();window.scrollTo(0,0);
   SND.play(out.win?'win':'lose');if(out.win&&out.res&&out.res.coins)setTimeout(()=>SND.play('coins'),760);
 }
@@ -612,9 +696,21 @@ function chestCards(list,startDelay){
   const m=[0,0,0,0,0];list.forEach(t=>{m[t]++;});
   return m.map((c,t)=>c?`<div class="rw" style="animation-delay:${(startDelay||0)+t*70}ms">${pic('chest_'+(t+1),CHESTS[t].n)}<b>${CHESTS[t].n}</b><small class="num">x${c}</small></div>`:'').join('');
 }
+function viewDailyResult(r){
+  const d=r.daily,again=d.left?`<button class="btn${r.win?'':' big'}" data-act="daily-go">Try again, ${triesText(d.left)} left</button>`:'';
+  const back='<button class="btn ghost" data-act="rank-today">Today\'s board</button><button class="btn ghost" data-act="nav" data-v="tower">Back to the tower</button>';
+  if(!r.win)return `<section class="res">${pic('hurt_pet','')}<h1>Challenge lost</h1><p>${d.left?`You have ${triesText(d.left)} left today. Everyone gets the same team, so a different plan is all it takes.`:`No tries left today. A new challenge starts in ${timeToReset()}.`}</p><div class="btns">${again}${back}</div></section>`;
+  const better=d.best&&(d.best.rounds!==r.rounds||d.best.hp!==d.hp);
+  return `<section class="res win">${pic('win_pet','')}<h1>Challenge won!</h1>
+    <div class="big-coin num">${roundsText(r.rounds)}</div>
+    <p class="num">${d.hp}% HP left.${better?` Your best today is ${roundsText(d.best.rounds)} with ${d.best.hp}% HP.`:''}${d.rank?` You are rank ${fmt(d.rank)} today.`:''}</p>
+    ${d.reward?`<div class="rewards">${chestCards([d.reward.tier])}</div><p>The chest is in your inventory.</p>`:''}
+    <div class="btns"><button class="btn big" data-act="share">Share on X</button>${again}${d.reward?'<button class="btn" data-act="to-chests">Open chests</button>':''}${back}</div></section>`;
+}
 function viewResult(){
   const r=UI.result;
   if(!r)return '';
+  if(r.daily)return viewDailyResult(r);
   if(r.sandbox)return `<section class="res ${r.win?'win':''}">${pic(r.win?'win_pet':'hurt_pet','')}<h1>${r.win?'Practice won':'Practice lost'}</h1><p>Practice battles give no rewards.</p><div class="btns"><button class="btn" data-act="try-again">Fight again</button><button class="btn ghost" data-act="nav" data-v="codex">Back to the Codex</button></div></section>`;
   if(r.win&&!r.res)return `<section class="res win">${pic('win_pet','')}<h1>Battle saved</h1><p>This battle was already recorded.</p><div class="btns"><button class="btn big" data-act="nav" data-v="tower">Back to the tower</button></div></section>`;
   if(!r.win){
@@ -633,11 +729,12 @@ function viewResult(){
   const nextF=r.floor+1,hasNext=w.first&&nextF<=FLOORS.length;
   return `<section class="res win">${pic('win_pet','')}<h1>${w.first?`Floor ${r.floor} cleared!`:`Floor ${r.floor} won again`}</h1>
     <div class="big-coin num">${coin}+${fmt(w.coins)}</div>
+    ${w.live?`<p class="hint">Squeektoshi is on the wheel, so this win paid ${Math.round(LIVE_BONUS*100)}% more coins.</p>`:''}
     <p class="num">${all.length} chest${all.length>1?'s':''} added to your inventory${w.treasure?`, including a treasure chest because the hamster slept ${dec(w.treasure.hours)} hours`:''}.</p>
     <div class="rewards">${cards.join('')}</div>
     ${w.first&&G.top===FLOORS.length?'<p>You cleared every floor so far. New floors appear when the hamster runs again.</p>':''}
     ${G.top<10&&G.coins>=FOOD_BAGS[0].cost*3?`<p class="note">Your coins can buy food in the Shop. Feed a hamster to 100%, then run the wheel for XP. The floor 10 boss needs a stronger team.</p>`:''}
-    <div class="btns">${hasNext?`<button class="btn big" data-act="enter" data-f="${nextF}">Climb floor ${nextF}</button>`:`<button class="btn big" data-act="enter" data-f="${r.floor}">Replay floor ${r.floor}</button>`}<button class="btn" data-act="to-chests">Open chests</button><button class="btn ghost" data-act="nav" data-v="team">Team</button><button class="btn ghost" data-act="nav" data-v="tower">Back to the tower</button></div></section>`;
+    <div class="btns">${hasNext?`<button class="btn big" data-act="enter" data-f="${nextF}">Climb floor ${nextF}</button>`:`<button class="btn big" data-act="enter" data-f="${r.floor}">Replay floor ${r.floor}</button>`}${w.first||r.boss?'<button class="btn" data-act="share">Share on X</button>':''}<button class="btn" data-act="to-chests">Open chests</button><button class="btn ghost" data-act="nav" data-v="team">Team</button><button class="btn ghost" data-act="nav" data-v="tower">Back to the tower</button></div></section>`;
 }
 
 /* DETAILS ON HOVER, LONG PRESS ON PHONES */
@@ -924,9 +1021,12 @@ async function trainRun(id){
 
 /* LEADERBOARD */
 async function loadRanks(){
+  /* the climb board does not wait for the challenge, and does not depend on it */
   const [l,me]=await Promise.all([api('/api/leaderboard'),api('/api/rank')]);
   UI.ranks={l,me};
   if(UI.view==='ranks')render();
+  await loadDaily();
+  if(UI.view==='ranks'&&!UI.sheet)render();
 }
 const isWallet=n=>/^0x[0-9a-fA-F]{40}$/.test(n);
 function agoText(t){
@@ -938,23 +1038,142 @@ function agoText(t){
   const d=Math.round(s/86400);return d+(d===1?' day ago':' days ago');
 }
 function rankName(r,i){
+  if(r.dev)return `<span class="rk-name"><button class="tag t-dev rk-dev" data-act="player" data-id="${r.id}" aria-label="View the climb of the dev wallet">Dev</button></span>`;
   const me=PLAYER&&r.name===PLAYER.name;
-  return `<span class="rk-name"><span class="addr" id="rk-${i}">${r.name}</span>${me?'<span class="tag t-first">You</span>':''}${isWallet(r.name)?`<button class="rk-copy" data-act="copy" data-t="${r.name}" data-el="rk-${i}" aria-label="Copy address ${r.name}">Copy</button>`:''}</span>`;
+  return `<span class="rk-name"><button class="addr rk-open" id="rk-${i}" data-act="player" data-id="${r.id}" aria-label="View the climb of ${r.name}">${r.name}</button>${me?'<span class="tag t-first">You</span>':''}${isWallet(r.name)?`<button class="rk-copy" data-act="copy" data-t="${r.name}" data-el="rk-${i}" aria-label="Copy address ${r.name}">Copy</button>`:''}</span>`;
+}
+function viewRanksToday(){
+  const d=UI.daily;
+  if(!d)return '<div class="empty-note">Loading today\'s challenge...</div>';
+  const m=d.me,top=d.pub.top,devs=d.pub.devs||[];
+  const mine=m.best?`<section class="my-rank">${m.rank?`<div class="my-no num"><small>Your rank</small><b>${fmt(m.rank)}</b></div>`:''}<div class="my-tx"><b class="num">${roundsText(m.best.rounds)}, ${m.best.hp}% HP left</b><p>${m.left?`${triesText(m.left)} left today. Fewer rounds would move you up.`:`No tries left. A new challenge starts in ${timeToReset()}.`}</p></div><button class="btn" data-act="sheet" data-type="daily">Open</button></section>`
+    :`<section class="my-rank"><div class="my-tx"><b>No score today yet</b><p>${m.left?`Win the challenge to get on this board. ${triesText(m.left)} left.`:`No tries left. A new challenge starts in ${timeToReset()}.`}</p></div><button class="btn" data-act="sheet" data-type="daily">Open</button></section>`;
+  return `${mine}${top.length||devs.length?`<ol class="rank">${dailyRows(top,50,devs)}</ol>`:'<div class="empty-note">Nobody has won today\'s challenge yet. Be the first.</div>'}
+    <p class="note">Same team and same fight for everyone. Fewest rounds first, then the most HP left, then whoever got there first. Shows the top ${fmt(Math.min(50,top.length))} of ${fmt(d.pub.total)} and refreshes about every 30 seconds. This board starts over every day and has no prize.</p>`;
+}
+function prizeCard(){
+  const guest=PLAYER&&!PLAYER.wallet;
+  return `<section class="sweep prize">${pic('medal_1','')}<div><h2>Top 10 prize</h2><p>The top 10 wallets split the SQK that 1 Squeek earns in one day at Squeekchain mainnet.${guest?' You are playing as a guest: sign in with a wallet to qualify.':''}</p></div><button class="btn ghost" data-act="sheet" data-type="prize">Rules</button></section>`;
+}
+function sheetPrize(){
+  return `<h2>Top 10 prize</h2>
+    <p>The top 10 wallets on the leaderboard split the SQK that 1 Squeek earns in one day at Squeekchain mainnet.</p>
+    <ol class="how">
+      <li>The prize comes personally from the maker of this game. It is not part of the game and does not come from Squeekchain.</li>
+      <li>The amount depends on what 1 Squeek earns that day, so it is not fixed.</li>
+      <li>The board is read on a date announced beforehand. Until then nothing is final.</li>
+      <li>Only wallets can win. Guests stay on the board, but the count skips them and the next wallet moves up.</li>
+      <li>Sign in with a wallet to qualify. A guest save moves to the wallet, unless that wallet already has its own save.</li>
+      <li>Only the tower climb counts. Today's Challenge has its own board and no prize.</li>
+      <li>Every climb in the top 10 is checked by hand before paying. Bots, cheating or many wallets run by one person can be removed.</li>
+      <li>A dev wallet carries a Dev tag and is not ranked.</li>
+    </ol>
+    ${PLAYER&&!PLAYER.wallet?'<div class="btns"><button class="btn" data-act="guest-save">Save this guest with a wallet</button></div>':''}`;
+}
+/* A CLIMBER'S PUBLIC PAGE */
+function dropName(x){
+  const from=x.source==='bag'?'a Blind Bag':'a '+(CHESTS[+x.source.split(' ')[1]]||{n:'chest'}).n;
+  if(x.kind==='pet')return `${PETS[x.ref]?PETS[x.ref].n:x.ref}, from ${from}`;
+  const [set,slot]=x.ref.split(' ');
+  return `${SETS[set]?SETS[set].n:set} ${SLOTS[slot]?SLOTS[slot].n:slot}, from ${from}`;
+}
+function sheetPlayer(s){
+  const p=s.data;
+  if(!p)return `<h2>Climber</h2><div class="empty-note">${s.err?esc(s.err):'Loading...'}</div>`;
+  const team=p.team.map(t=>{
+    const x=PETS[t.id],br=t.branch&&(BRANCHES[x.role].find(b=>b[0]===t.branch)||[])[1];
+    return `<div class="prof-pet">${picL('pet_'+t.id,x.n)}<div class="prof-tx"><b>${x.n}</b><small class="num">Level ${fmt(t.lv)}, ${stars(t.star)}${br?`, ${br}`:''}</small><span class="prof-gear">${t.gear.length?t.gear.map(g=>`<span class="r-${g[2]}" title="${RARS[g[2]].n} ${SETS[g[0]].n} ${SLOTS[g[1]].n}${g[3]?' +'+g[3]:''}">${picL('g_'+g[1]+'_'+g[0],RARS[g[2]].n+' '+SETS[g[0]].n+' '+SLOTS[g[1]].n)}${g[3]?`<em class="num">+${g[3]}</em>`:''}</span>`).join(''):'<small>No gear</small>'}</span></div></div>`;
+  }).join('');
+  return `<h2>Climber</h2>
+    <div class="prof-name">${p.dev?'<span class="tag t-dev">Dev</span>':`<span class="addr" id="prof-a">${p.name}</span>${isWallet(p.name)?`<button class="rk-copy" data-act="copy" data-t="${p.name}" data-el="prof-a" aria-label="Copy address ${p.name}">Copy</button>`:'<span class="tag">Guest, cannot win the prize</span>'}`}</div>
+    <dl class="kv num"><dt>Highest floor</dt><dd>${fmt(p.top)}${p.at?`, reached ${agoText(p.at)}`:''}</dd>
+      ${p.rank?`<dt>Rank</dt><dd>${fmt(p.rank)}</dd>`:''}
+      <dt>Battles</dt><dd>${fmt(p.battles)} played, ${fmt(p.wins)} won</dd>
+      <dt>Blind bags</dt><dd>${fmt(p.bags)} opened</dd>
+      ${p.msPerRound?`<dt>Time per round</dt><dd>About ${dec(p.msPerRound/1000)} s over ${fmt(p.clears)} first clear${p.clears===1?'':'s'}</dd>`:''}
+      <dt>Playing since</dt><dd>${TIME_STR(p.since)}</dd></dl>
+    <div class="sec-t">Team</div>
+    <div class="stack" style="gap:6px">${team}</div>
+    <div class="sec-t">Legendaries</div>
+    <p class="num">${p.legendaries.length?`Pets: ${p.legendaries.map(id=>PETS[id].n).join(', ')}.`:'No legendary pets.'} Legendary gear: ${fmt(p.legendaryGear)}.</p>
+    ${p.drops.length?`<ul class="prof-drops">${p.drops.map(x=>`<li>${dropName(x)}<small class="num">${agoText(x.at)}</small></li>`).join('')}</ul>`:''}
+    <p class="note">Every legendary from a chest or a bag is written down since 3 Nov 2026. Anything older is not on this list.</p>`;
 }
 function viewRanks(){
   const d=UI.ranks,head=n=>`<div class="head-row"><h1>Leaderboard</h1>${n?`<span class="pill num">${fmt(n)} climber${n===1?'':'s'}</span>`:''}</div>`;
+  const tabs=`<div class="tabs" role="group" aria-label="Leaderboards"><button class="chipb${UI.rankTab==='climb'?' on':''}" data-act="rank-tab" data-k="climb">Tower climb</button><button class="chipb${UI.rankTab==='today'?' on':''}" data-act="rank-tab" data-k="today">Today's Challenge</button></div>`;
   if(!d)return head(0)+'<div class="empty-note">Loading the leaderboard...</div>';
+  if(UI.rankTab==='today')return head(d.l.total)+tabs+viewRanksToday();
   const rows=d.l.top||[],rank=d.me&&d.me.rank,above=rank&&rank>1?rows[rank-2]:null;
   const gap=above?Math.max(1,above.top-G.top+1):0;
   const mine=rank?`<section class="my-rank"><div class="my-no num"><small>Your rank</small><b>${fmt(rank)}</b></div>
       <div class="my-tx"><b class="num">Floor ${fmt(G.top)} of ${fmt(FLOORS.length)}</b><p>${rank===1?'You are leading the climb. Hold on to it.':above?`Clear ${fmt(gap)} more floor${gap===1?'':'s'} to pass the climber above you.`:'Keep climbing to reach the top 100.'}</p></div>
       ${allClear()?'':`<button class="btn" data-act="sheet" data-type="floor" data-f="${curFloor()}">Climb floor ${curFloor()}</button>`}</section>`
+    :d.me&&d.me.test?`<section class="my-rank"><div class="my-tx"><b class="num">Floor ${fmt(G.top)} of ${fmt(FLOORS.length)}</b><p>This is a dev wallet. It shows as Dev on the boards and is not ranked.</p></div></section>`
     :`<section class="my-rank"><div class="my-tx"><b>You are not ranked yet</b><p>Clear floor 1 to enter the leaderboard.</p></div><button class="btn" data-act="sheet" data-type="floor" data-f="1">Climb floor 1</button></section>`;
   const pods=rows.slice(0,3).map((r,i)=>`<div class="pod p${i+1}${PLAYER&&r.name===PLAYER.name?' me':''}">${pic('medal_'+(i+1),'Rank '+(i+1))}<strong class="num">Floor ${fmt(r.top)}</strong>${rankName(r,i)}<small>${agoText(r.at)}</small></div>`).join('');
-  const rest=rows.slice(3).map((r,k)=>{const i=k+3;return `<li class="${PLAYER&&r.name===PLAYER.name?'me':''}"><b class="num">${i+1}</b>${rankName(r,i)}<span class="rk-floor num">Floor ${fmt(r.top)}<small>${agoText(r.at)}</small></span></li>`;}).join('');
-  return `${head(d.l.total)}${mine}
-    ${rows.length?`<div class="pods">${pods}</div>${rest?`<ol class="rank">${rest}</ol>`:''}`:'<div class="empty-note">Nobody has cleared a floor yet. Be the first.</div>'}
-    <p class="note">Ranked by the highest floor cleared. On a tie, whoever got there first stands higher. Shows the top ${fmt(Math.min(100,rows.length))} of ${fmt(d.l.total)} and refreshes about every 30 seconds.</p>`;
+  const rest=rows.slice(3).map((r,k)=>({r,i:k+3})).concat((d.l.devs||[]).map(r=>({r,i:-1}))).sort((a,b)=>b.r.top-a.r.top||a.r.at-b.r.at).map(({r,i})=>`<li class="${PLAYER&&r.name===PLAYER.name?'me':''}"><b class="num">${i<0?'':i+1}</b>${rankName(r,i)}<span class="rk-floor num">Floor ${fmt(r.top)}<small>${agoText(r.at)}</small></span></li>`).join('');
+  return `${head(d.l.total)}${tabs}${mine}${prizeCard()}
+    ${rows.length?`<div class="pods">${pods}</div>`:'<div class="empty-note">Nobody has cleared a floor yet. Be the first.</div>'}${rest?`<ol class="rank">${rest}</ol>`:''}
+    <p class="note">Ranked by the highest floor cleared. On a tie, whoever got there first stands higher. Shows the top ${fmt(Math.min(100,rows.length))} of ${fmt(d.l.total)} and refreshes about every 30 seconds. Tap a name to see that climb.</p>`;
+}
+
+/* SHARE CARD: drawn on this device and only leaves it if the player posts it */
+const SITE_URL='https://www.hamstertower.site';
+const loadImg=src=>new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});
+const CAN_SHARE_FILES=(()=>{try{return !!(navigator.canShare&&navigator.canShare({files:[new File(['x'],'x.png',{type:'image/png'})]}));}catch(e){return false;}})();
+const IS_TOUCH=!!(window.matchMedia&&matchMedia('(pointer:coarse)').matches);
+function shareInfo(){
+  const r=UI.result,n=r.node;
+  if(r.daily){
+    const ch=UI.daily.pub.ch;
+    return {file:'hamster-tower-challenge',title:"Today's Challenge",big:`Won in ${roundsText(r.rounds)}`,sub:`${r.daily.hp}% HP left${r.daily.rank?`, rank ${fmt(r.daily.rank)} today`:''}. Same team for everyone.`,from:`Built from round ${n.round} of the real hamster, ${fmt(n.work)} work`,team:r.team.map(id=>({id,lv:ch.lv})),
+      text:`I won today's Hamster Tower challenge in ${roundsText(r.rounds)}${r.daily.rank?`, rank ${fmt(r.daily.rank)}`:''}. Same team for everyone, built from a real round of the @squeekchain hamster. Beat that:`};
+  }
+  return {file:'hamster-tower-floor-'+r.floor,title:'Hamster Tower',big:r.boss?`Boss beaten on floor ${fmt(r.floor)}`:`Floor ${fmt(r.floor)} cleared`,sub:`${fmt(G.top)} of ${fmt(FLOORS.length)} floors climbed`,from:`Round ${n.round} of the real hamster, ${fmt(n.work)} work`,team:G.team.map(id=>({id,lv:G.owned[id].lv})),
+    text:`I ${r.boss?`beat the boss on floor ${fmt(r.floor)}`:`cleared floor ${fmt(r.floor)}`} of Hamster Tower. Every floor is a real round run by the @squeekchain hamster. Can you climb higher?`};
+}
+async function drawShare(info){
+  const W=1200,H=630,c=document.createElement('canvas');c.width=W;c.height=H;
+  const x=c.getContext('2d');
+  await Promise.all([document.fonts.load('800 80px "Baloo 2"'),document.fonts.load('600 30px "Be Vietnam Pro"'),document.fonts.load('500 24px "Be Vietnam Pro"')]);
+  const [bg,icon,...pets]=await Promise.all([loadImg(artUri('scene')),loadImg(artUri('pet_squeektoshi')),...info.team.map(t=>loadImg(artUri('pet_'+t.id)))]);
+  const k=Math.max(W/bg.width,H/bg.height);
+  x.drawImage(bg,(W-bg.width*k)/2,(H-bg.height*k)/2,bg.width*k,bg.height*k);
+  const g=x.createLinearGradient(0,0,W,0);g.addColorStop(0,'rgba(21,18,43,.96)');g.addColorStop(.7,'rgba(21,18,43,.84)');g.addColorStop(1,'rgba(21,18,43,.5)');
+  x.fillStyle=g;x.fillRect(0,0,W,H);
+  const text=(s,tx,ty,font,col,max)=>{x.font=font;x.fillStyle=col;x.fillText(s,tx,ty,max||W-112);};
+  x.textBaseline='alphabetic';
+  x.drawImage(icon,52,34,64,64);
+  text(info.title,128,80,'800 40px "Baloo 2"','#FFF6E5');
+  text(info.big,56,186,'800 84px "Baloo 2"','#FFC94D');
+  text(info.sub,56,238,'600 30px "Be Vietnam Pro"','#FFF6E5');
+  text(info.from,56,280,'500 25px "Be Vietnam Pro"','#DDD8EE');
+  info.team.forEach((t,i)=>{
+    const px=56+i*238;
+    x.drawImage(pets[i],px,306,190,190);
+    x.textAlign='center';
+    text(PETS[t.id].n,px+95,524,'800 25px "Baloo 2"','#FFF6E5',226);
+    text('Level '+fmt(t.lv),px+95,552,'500 21px "Be Vietnam Pro"','#FFE27A',226);
+    x.textAlign='left';
+  });
+  text(PLAYER?(PLAYER.trial?'Dev':PLAYER.name):'',56,600,'500 21px ui-monospace,Consolas,monospace','#DDD8EE',680);
+  x.textAlign='right';text('www.hamstertower.site',W-52,602,'800 38px "Baloo 2"','#FFC94D',420);x.textAlign='left';
+  return new Promise(res=>c.toBlob(res,'image/png'));
+}
+const intentUrl=info=>`https://twitter.com/intent/tweet?text=${encodeURIComponent(info.text)}&url=${encodeURIComponent(SITE_URL)}`;
+function sheetShare(s){
+  const fileFirst=CAN_SHARE_FILES&&IS_TOUCH,copy=!!(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write);
+  return `<h2>Share on X</h2>
+    <div class="share-box">${s.url?`<img src="${s.url}" alt="${esc(s.info.big)}, picture to share">`:`<div class="empty-note">${s.err?esc(s.err):'Drawing your picture...'}</div>`}</div>
+    <p class="num share-text">${esc(s.info.text)} ${SITE_URL}</p>
+    <div class="btns">
+      ${fileFirst?`<button class="btn big" data-act="share-go"${s.url?'':' disabled'}>Share picture</button>`:''}
+      <a class="btn${fileFirst?' ghost':' big'}" href="${esc(intentUrl(s.info))}" target="_blank" rel="noopener noreferrer">Post on X</a>
+      ${copy?`<button class="btn ghost" data-act="share-copy"${s.url?'':' disabled'}>Copy picture</button>`:''}
+      <button class="btn ghost" data-act="share-save"${s.url?'':' disabled'}>Save picture</button>
+    </div>
+    <p class="note">${fileFirst?'Share picture opens your apps, pick X. Post on X only carries the text and the link.':`Post on X opens a post with this text and link. To add the picture, ${copy?'copy it first and paste it into the post':'save it first and attach it to the post'}.`}</p>`;
 }
 
 /* SHOP: food bags and blind bags */
@@ -1250,6 +1469,8 @@ function codexRules(){
       <li>A full Rage bar unlocks the big skill. Attacking and being hit both build Rage.</li>
       <li>Melee attacks and many enemy attacks only reach the front row. The first pet in your team is the front row.</li>
       <li>Cleared floors stay cleared. Losing costs nothing, so replay as much as you like for coins and chests. Leaving a battle after its first turn counts as a loss, and every new try has new luck.</li>
+      <li>While Squeektoshi is on the wheel, battle wins pay ${Math.round(LIVE_BONUS*100)}% more coins. The Tower screen shows what he is doing right now.</li>
+      <li>Today's Challenge gives everyone the same team and the same fight, made from the hamster's biggest run of the day before. You get ${DAILY_TRIES} tries, fewest rounds wins, and your first win of the day pays a chest.</li>
       <li>Chests go to your inventory and open from there. Use Sweep once per day to collect rewards from cleared floors.</li>
       <li>Coins buy food and blind bags in the Shop. Feed a hamster to 100% and run the wheel to earn levels.</li>
       <li>On a keyboard, 1, 2 and 3 pick a skill, Enter fights, Tab moves between buttons, Escape closes or skips, and M turns the sound on or off.</li></ol></section>
@@ -1300,9 +1521,9 @@ function sandboxNode(id){
 /* TEST PANEL */
 function sheetTrial(){
   return `<h2>Test panel</h2>
-    <p class="note">Only test wallets see this panel, so you can reach all the content quickly. It changes this account for real: floors you jump to count on the leaderboard until you erase your data.</p>
+    <p class="note">Only test wallets see this panel, so you can reach all the content quickly. It changes this account for real. On the boards a test wallet shows as Dev, without its address, and is not ranked.</p>
     <div class="sec-t">Add resources</div>
-    <div class="btns"><button class="btn sm" data-act="tr-coins">Add 10,000 coins</button><button class="btn sm" data-act="tr-chests">Add 38 chests</button><button class="btn sm" data-act="tr-food">Add 10 of every food</button><button class="btn sm" data-act="tr-pets">Get all ${PETS_LIST.length} pets</button><button class="btn sm" data-act="tr-sweep">Reset Sweep</button></div>
+    <div class="btns"><button class="btn sm" data-act="tr-coins">Add 10,000 coins</button><button class="btn sm" data-act="tr-chests">Add 38 chests</button><button class="btn sm" data-act="tr-food">Add 10 of every food</button><button class="btn sm" data-act="tr-pets">Get all ${PETS_LIST.length} pets</button><button class="btn sm" data-act="tr-sweep">Reset Sweep</button><button class="btn sm" data-act="tr-daily">Reset today's challenge</button></div>
     <div class="sec-t">Jump to a floor (the team is leveled up to match)</div>
     <div class="btns">${[9,19,29,49,99,199,399].filter(n=>n<FLOORS.length).map(n=>`<button class="btn ghost sm" data-act="tr-jump" data-n="${n}">Floor ${n+1}</button>`).join('')}</div>
     <div class="sec-t">Start over</div>
@@ -1323,9 +1544,46 @@ const ACT={
   async guest(){await api('/api/auth/guest',{});await afterLogin();},
   wallet(){UI.walletWait=null;askWallets();openSheet({type:'wallets'});},
   'wallet-pick'(d){pickWallet(+d.i);},
-  async logout(){await api('/api/auth/logout',{});setTicket(null);if(BT)leaveBattle();G=null;PLAYER=null;UI.sheet=null;UI.ranks=null;UI.view='login';render();},
+  async logout(){await api('/api/auth/logout',{});setTicket(null);if(BT)leaveBattle();G=null;PLAYER=null;UI.sheet=null;UI.ranks=null;UI.daily=null;UI.dailyAt=0;UI.view='login';render();},
   'to-chests'(){UI.view='items';UI.invTab='chest';UI.sheet=null;UI.result=null;render();window.scrollTo(0,0);},
   enter(d){const f=+d.f;if(f>G.top+1||!FLOORS[f-1])return;UI.result=null;return enterBattle(FLOORS[f-1]);},
+  async 'daily-go'(){
+    const res=UI.result;UI.result=null;
+    try{await enterBattle(null,{daily:true});}
+    catch(e){UI.result=res;loadDaily();throw e;}
+  },
+  'rank-today'(){UI.view='ranks';UI.rankTab='today';UI.sheet=null;UI.result=null;render();window.scrollTo(0,0);return loadRanks();},
+  'rank-tab'(d){UI.rankTab=d.k;render();},
+  async player(d){
+    const s={type:'player',id:d.id,data:null};
+    openSheet(s);
+    try{s.data=await api('/api/player?id='+encodeURIComponent(d.id));}catch(e){s.err=e.message||'This climber could not be loaded';}
+    if(UI.sheet===s)render();
+  },
+  async share(){
+    const info=shareInfo(),s={type:'share',info,url:null,blob:null};
+    openSheet(s);
+    try{
+      s.blob=await drawShare(info);
+      if(UI.shareUrl)URL.revokeObjectURL(UI.shareUrl);
+      s.url=UI.shareUrl=URL.createObjectURL(s.blob);
+    }catch(e){s.err='The picture could not be drawn. You can still post the text.';}
+    if(UI.sheet===s)render();
+  },
+  async 'share-go'(){
+    const s=UI.sheet;if(!s||!s.blob)return;
+    try{await navigator.share({files:[new File([s.blob],s.info.file+'.png',{type:'image/png'})],text:s.info.text+' '+SITE_URL});}
+    catch(e){if(e&&e.name!=='AbortError')toast('Could not open your apps, try Save picture');}
+  },
+  async 'share-copy'(){
+    const s=UI.sheet;if(!s||!s.blob)return;
+    try{await navigator.clipboard.write([new ClipboardItem({'image/png':s.blob})]);toast('Picture copied, paste it into your post');}
+    catch(e){toast('Could not copy, try Save picture');}
+  },
+  'share-save'(){
+    const s=UI.sheet;if(!s||!s.url)return;
+    const a=document.createElement('a');a.href=s.url;a.download=s.info.file+'.png';document.body.appendChild(a);a.click();a.remove();toast('Picture saved');
+  },
   pick(d){if(!BT||BT.playing)return;const i=+d.i;if(!canPick(BT.B,d.u,i))return;BT.plan[d.u].i=i;BT.focus=d.u;const sk=PETS[uById(BT.B,d.u).ref].skills[i];if(sk.tgt!=='foe')nextFocus();refreshPlan();},
   focus(d){if(!BT||BT.playing)return;const u=uById(BT.B,d.id);if(!u||!u.alive)return;BT.focus=d.id;refreshPlan();},
   target(d){if(!BT||BT.playing)return;const pl=BT.plan[BT.focus];if(!pl)return;pl.target=d.id;BT.lastT[BT.focus]=d.id;const sk=PETS[uById(BT.B,BT.focus).ref].skills[pl.i];if(sk.tgt==='foe')nextFocus();refreshPlan();},
@@ -1339,6 +1597,7 @@ const ACT={
       setTimeout(()=>{UI.leaveAsk=false;const b=$('#leave');if(b){b.textContent='Leave';b.classList.remove('warn');}},2600);
       return;
     }
+    if(BT&&BT.daily)UI.dailyAt=0;
     UI.leaveAsk=false;leaveBattle();UI.view='tower';render();window.scrollTo(0,0);
   },
   'try'(d){UI.lastTry=d.id;return enterBattle(sandboxNode(d.id),{sandbox:true,salt:'practice'});},
@@ -1397,6 +1656,7 @@ const ACT={
   async 'tr-food'(){await dev('food');render();toast('Added 10 of every food');},
   async 'tr-pets'(){await dev('pets');render();toast(`You now own all ${PETS_LIST.length} pets, at 3 stars for testing branches`);},
   async 'tr-sweep'(){await dev('sweep');render();toast('Sweep is available again');},
+  async 'tr-daily'(){await dev('daily');UI.dailyAt=0;await loadDaily();render();toast("Today's challenge is reset for this wallet");},
   async 'tr-jump'(d){const j=await dev('jump',{n:+d.n});UI.block=null;UI.view='tower';UI.sheet=null;render();window.scrollTo(0,0);toast(`Jumped to floor ${G.top+1}, team raised to level ${j.lv}`);},
   'tr-wipe'(){UI.wipeAsk=true;render();},
   'tr-nowipe'(){UI.wipeAsk=false;render();},
@@ -1456,6 +1716,7 @@ async function loadRounds(){
 async function afterLogin(){
   const m=await api('/api/me');
   PLAYER=m.player;G=null;applyState(m.state);
+  UI.daily=null;UI.dailyAt=0;UI.liveAt=0;
   UI.view='tower';UI.block=null;render();window.scrollTo(0,0);
 }
 async function boot(){
@@ -1469,6 +1730,7 @@ async function boot(){
   }catch(e){
     $('#app').innerHTML=`<main class="login gut"><div class="login-box"><h1>The tower could not open</h1><p>${esc((e&&e.message)||'Something went wrong')}</p><div class="btns"><button class="btn" data-act="reload">Try again</button></div></div></main>`;
   }
+  setInterval(()=>{if(!document.hidden&&!BT&&!SP&&UI.view==='tower')towerData();},15000);
   /* new floors: read through the CDN, so a crowd of players never reaches the database */
   setInterval(async()=>{
     if(BT||SP||!G)return;

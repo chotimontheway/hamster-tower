@@ -10,6 +10,7 @@
     "export": "node scripts/build.js --export",
     "sync": "node scripts/sync.js",
     "migrate": "node scripts/migrate.js",
+    "top10": "node scripts/top10.js",
     "db:stop": "node scripts/db-stop.js",
     "test": "node tests/api.test.js",
     "bake-art": "node scripts/bake-art.js",

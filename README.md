@@ -17,7 +17,19 @@ Open http://localhost:3000 and choose **Play as guest** or **Sign in with wallet
 
 Press Ctrl+C to stop. If you close the terminal instead, the database keeps running. The next `npm run dev` reuses it, or run `npm run db:stop`.
 
-The **Test panel** button adds coins, chests and food, unlocks all pets, resets Sweep and jumps floors. `npm run dev` sets `ALLOW_TRIAL=1`, which gives it to everyone on your machine. On the live site only the wallets listed in `TEST_WALLETS` get it, and the server checks this on every call. Floors a test wallet jumps to count on the leaderboard until it erases its data.
+The **Test panel** button adds coins, chests and food, unlocks all pets, resets Sweep and today's challenge, and jumps floors. `npm run dev` sets `ALLOW_TRIAL=1`, which gives it to everyone on your machine. On the live site only the wallets listed in `TEST_WALLETS` get it, and the server checks this on every call. Test wallets from `TEST_WALLETS` are never ranked, and the boards show them as Dev without their address. With `ALLOW_TRIAL=1` the list is empty, so everyone stays on the local board.
+
+## The real hamster in the game
+
+The Tower screen shows what Squeektoshi is doing right now, read from the public Squeekchain status API at `/v1/status`. The wheel on the screen turns at his real speed. While he runs, and until the 10 minute round he ran in closes, battle wins pay 20% more coins. A stale, simulated or failed reading counts as unknown and pays no bonus, and the game keeps working.
+
+## Today's Challenge
+
+The biggest round the hamster ran the day before sets one team and one fight for everyone, so the score does not depend on chests or levels. Each player gets 3 tries a day, and a try is used when its first turn is played. Fewest rounds wins, then the most HP left, then whoever got there first. The first win of the day pays one chest, and the chest gets better the more the hamster ran the day before.
+
+The game's own bot plays each draw to set the enemy strength where it wins about 65% of the time, because teams and enemies differ too much for one fixed strength. The first request of a day builds the challenge and saves it in `daily_days`, so a round settled late cannot change it. It plays through the same server turns as a floor and never touches the climb.
+
+A first clear, a boss win or a challenge win can be shared on X. The picture is drawn on the player's device and only leaves it if they post it.
 
 ## Economy
 
@@ -53,6 +65,7 @@ Existing saves keep their levels. Pets saved before food existed start with an e
 | `npm run sim` | Balance bot that climbs the tower and reports battles per floor |
 | `npm run loadtest` | Simulates many players, see the notes below |
 | `npm run sync` | Reads new rounds from the chain once |
+| `npm run top10` | Lists the wallets in line for the prize, skipping guests and test wallets, with what is needed to check each climb |
 | `npm run bake-art` | Regenerates the WebP art from `tools/art-web.js`, needs Chrome |
 | `npm run db:stop` | Stops the local database |
 
@@ -75,7 +88,9 @@ The client never receives the random state, so chest, bag, food and wheel result
 
 Real battles run on the server one turn at a time. A turn's luck is made from the server secret after the plan arrives, each turn is counted in the database and can only be played once, and the server books the result itself. So a modified client cannot see ahead, try a turn twice, claim a win or hide a loss. Practice battles run in the browser and count for nothing.
 
-This does not stop bots. A script can play valid turns, and one person can use many wallets. The minimum time per turn is enforced in the database, so a bot cannot play faster than the fastest person, but a prize still needs a review by hand. `battle_log` keeps each first clear and `rare_drops` keeps every legendary that drops.
+This does not stop bots. A script can play valid turns, and one person can use many wallets. The minimum time per turn is enforced in the database, so a bot cannot play faster than the fastest person, but a prize still needs a review by hand. `battle_log` keeps each first clear and `rare_drops` keeps every legendary that drops. `npm run top10` prints both for the wallets in line for the prize, and each climber's public page shows the same facts to everyone.
+
+The prize for the top 10 wallets is paid personally by the maker and is not part of the game. Guests stay on the board, and the count skips them and test wallets. The rules are on the Ranks screen.
 
 ## Sound and fonts
 
