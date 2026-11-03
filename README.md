@@ -17,7 +17,7 @@ Open http://localhost:3000 and choose **Play as guest** or **Sign in with wallet
 
 Press Ctrl+C to stop. If you close the terminal instead, the database keeps running. The next `npm run dev` reuses it, or run `npm run db:stop`.
 
-The **Test panel** button adds coins, chests and food, unlocks all pets, resets Sweep and today's challenge, and jumps floors. `npm run dev` sets `ALLOW_TRIAL=1`, which gives it to everyone on your machine. On the live site only the wallets listed in `TEST_WALLETS` get it, and the server checks this on every call. Test wallets from `TEST_WALLETS` are never ranked, and the boards show them as Dev without their address. With `ALLOW_TRIAL=1` the list is empty, so everyone stays on the local board.
+The **Test panel** button adds coins, chests and food, unlocks all pets, resets Sweep and the Daily Challenge, and jumps floors. `npm run dev` sets `ALLOW_TRIAL=1`, which gives it to everyone on your machine. On the live site only the wallets listed in `TEST_WALLETS` get it, and the server checks this on every call. Test wallets from `TEST_WALLETS` are never ranked, and the boards show them as Dev without their address. With `ALLOW_TRIAL=1` the list is empty, so everyone stays on the local board.
 
 ## The real hamster in the game
 
@@ -25,9 +25,17 @@ The Tower screen shows what Squeektoshi is doing right now, read by the page its
 
 For 30 minutes after a round with work ends, battle wins pay 20% more coins. The server decides this from the rounds on the chain, so no page can claim it. A run reaches the chain a few minutes after its 10 minute round closes, so the bonus starts up to about 15 minutes after he starts.
 
-## Today's Challenge
+## Daily Challenge
 
 The biggest round the hamster ran the day before sets one team and one fight for everyone, so the score does not depend on chests or levels. Each player gets 3 tries a day, and a try is used when its first turn is played. Fewest rounds wins, then the most HP left, then whoever got there first. The first win of the day pays one chest, and the chest gets better the more the hamster ran the day before.
+
+When a day ends, the top 10 get rewards the next time they open the game. Rewards go out 15 minutes after midnight UTC, when the last battle of the day has ended, and test wallets get none.
+
+| Rank | Chest | Blind Bags | Food bags that suit the team |
+|---|---|---|---|
+| 1 | Diamond | 3 | 10 |
+| 2 and 3 | Gold | 2 | 6 |
+| 4 to 10 | Silver | 1 | 3 |
 
 The game's own bot plays each draw to set the enemy strength where it wins about 65% of the time, because teams and enemies differ too much for one fixed strength. The first request of a day builds the challenge and saves it in `daily_days`, so a round settled late cannot change it. It plays through the same server turns as a floor and never touches the climb.
 
@@ -36,6 +44,8 @@ A first clear, a boss win or a challenge win can be shared on X. The picture is 
 ## Economy
 
 Coins are in-game only. There are no top-ups, tokens, NFTs or trading. All odds are public in the game.
+
+A first clear pays full coins and 2 to 4 chests. A replay pays 30% of the coins with no boss bonus, and has a 70% chance of 1 chest, one tier lower. Replays paid much more before, and spamming a boss floor made pets too strong too fast: in a simulated 2.5 hours at floor 10, team power grew 2.7 times then and 1.6 times now, and a bot climbing the whole tower needs about 11 hours instead of 6.
 
 Hamsters level up through food, not by paying coins directly:
 
@@ -96,9 +106,11 @@ The prize for the top 10 wallets is paid personally by the maker and is not part
 
 ## Sound and fonts
 
-Every sound is synthesized in `client/sound.js` with the Web Audio API, so there are no audio files and nothing to license. Browsers keep audio off until the first press, the speaker button or the M key mutes it, and the choice is remembered in the browser. `tests/flow.js` renders each sound without speakers and fails loudness checks if one goes silent or too loud.
+Every sound is synthesized in `client/sound.js` with the Web Audio API, so there are no audio files and nothing to license. Browsers keep audio off until the first press, the speaker button or the M key mutes it, the note button or the N key turns only the music off, and the choice is remembered in the browser. `tests/flow.js` renders each sound without speakers and fails loudness checks if one goes silent or too loud.
 
-The fonts are Baloo 2 and Be Vietnam Pro, served from `public/fonts` under the SIL Open Font License, whose text sits next to them. Nothing is loaded from another site.
+The music is three short pieces written as notes for the same synth: a music box waltz for the tower and menus, an upbeat march for battles, and a darker, faster one for bosses.
+
+The fonts are Baloo 2 and Be Vietnam Pro, served from `public/fonts` under the SIL Open Font License, whose text sits next to them. Nothing is loaded from another site. The one outside address the page calls is the public Squeekchain status API, for the wheel on the Tower screen.
 
 ## Project layout
 

@@ -67,6 +67,11 @@ const refused = async c => {
     await q('INSERT INTO daily_scores (day, player_id, tries) VALUES ($1, $2, 1)', [day, meT.body.player.id]);await daily.saveBest(day, meT.body.player.id, 7, 50);
     const myDay = (await t('/api/daily/me')).body;
     check('it keeps its score but gets no rank number', myDay.best.rounds === 7 && myDay.rank === null, myDay);
+    const past = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10), rivalId = rivalMe.player.id;
+    await q('INSERT INTO daily_scores (day, player_id, tries, rounds, hp, at) VALUES ($1, $2, 1, 2, 100, now()), ($1, $3, 1, 5, 50, now())', [past, meT.body.player.id, rivalId]);
+    const testerPrize = await t('/api/daily/claim', {}), rivalPrize = await rival('/api/daily/claim', {});
+    check('a test wallet gets no rewards, even with the best score', testerPrize.body.prizes.length === 0 && (await t('/api/daily/me')).body.unclaimed === false, testerPrize.body);
+    check('and takes no place from the wallet below it, which ranks first', rivalPrize.body.prizes.length === 1 && rivalPrize.body.prizes[0].rank === 1 && rivalPrize.body.prizes[0].chest === 4, rivalPrize.body);
   }
   await new Promise(r => setTimeout(r, 31000));
   if (process.env.DATABASE_URL) {

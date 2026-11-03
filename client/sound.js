@@ -2,7 +2,7 @@
    Browsers keep audio off until the first click or key press, so nothing plays before that */
 const SND=(()=>{
   const VOL=2,GAP={hover:70,tick:24,hit:45,dot:60,cast:60,swing:60,st:70,buff:70,debuff:70,rage:120,levelup:220,coin:50,tap:30},last={};
-  let ctx=null,out=null,noise=null,loop=null,voices=0,wasOn=false;
+  let ctx=null,out=null,noise=null,loop=null,voices=0,wasOn=false,mbus=null;
   const on=()=>PREF.sound!==false;
   function wire(c,dest){
     const comp=c.createDynamicsCompressor();
@@ -104,6 +104,99 @@ const SND=(()=>{
       loop={stop(){try{const q=c.currentTime;g.gain.cancelScheduledValues(q);ng.gain.cancelScheduledValues(q);g.gain.setTargetAtTime(.0001,q,.03);ng.gain.setTargetAtTime(.0001,q,.03);[s,lfo,n].forEach(x=>x.stop(q+.2));}catch(e){}}};
     },
   };
+  /* MUSIC: three short pieces written as notes for this same synth, so there is still nothing to download or license.
+     Each bar names its chord, the bass and the backing follow it, and the lead is written out as [step, note, steps]. A timer schedules a little ahead of the clock */
+  const CH={F:[41,57,60,65],C:[48,55,60,64],Dm:[50,57,62,65],Bb:[46,58,62,65],Am:[45,57,60,64],Gm:[43,58,62,67],G:[43,55,59,62],E:[40,56,59,64],A:[45,57,61,64]};
+  const bars=s=>s.split(' ').map(x=>CH[x]);
+  function mInit(){
+    if(mbus)return;
+    mbus=ctx.createGain();mbus.gain.value=.0001;
+    const lp=ctx.createBiquadFilter(),dl=ctx.createDelay(1),fb=ctx.createGain(),wet=ctx.createGain();
+    lp.type='lowpass';lp.frequency.value=4200;dl.delayTime.value=.29;fb.gain.value=.2;wet.gain.value=.16;
+    mbus.connect(lp);lp.connect(out);lp.connect(dl);dl.connect(fb);fb.connect(dl);dl.connect(wet);wet.connect(out);
+  }
+  function note(t,f,d,g,type,a){
+    a=a||.006;
+    const s=ctx.createOscillator(),e=ctx.createGain();
+    s.type=type||'sine';s.frequency.value=f;
+    e.gain.setValueAtTime(.0001,t);e.gain.exponentialRampToValueAtTime(g,t+a);e.gain.exponentialRampToValueAtTime(.0001,t+a+d);
+    s.connect(e);e.connect(mbus);s.start(t);s.stop(t+a+d+.02);
+  }
+  const mBox=(t,m,d,g)=>{note(t,midi(m),d,g);note(t,midi(m+12),d*.5,g*.22);note(t,midi(m+24),d*.2,g*.06,'triangle');};
+  function mKick(t,g){const s=ctx.createOscillator(),e=ctx.createGain();s.frequency.setValueAtTime(130,t);s.frequency.exponentialRampToValueAtTime(48,t+.09);e.gain.setValueAtTime(g,t);e.gain.exponentialRampToValueAtTime(.0001,t+.13);s.connect(e);e.connect(mbus);s.start(t);s.stop(t+.15);}
+  function mNoise(t,d,g,ft,f){const s=ctx.createBufferSource(),fl=ctx.createBiquadFilter(),e=ctx.createGain();s.buffer=noise;fl.type=ft;fl.frequency.value=f;e.gain.setValueAtTime(g,t);e.gain.exponentialRampToValueAtTime(.0001,t+d);s.connect(fl);fl.connect(e);e.connect(mbus);s.start(t,Math.random()*.7,d+.02);}
+  const TH={
+    /* a music box waltz in F major while climbing and in the menus */
+    tower:{spm:208,bar:6,g:.34,chords:bars('F C Dm Bb F C Bb C Dm Am Bb F Gm C F F Bb F Gm C Bb F Gm C Dm Bb F C Bb C F F'),
+      lead:[[[0,69,2],[2,72,2],[4,77,2]],[[0,76,3],[3,74,1],[4,72,2]],[[0,74,3],[3,72,1],[4,69,2]],[[0,70,2],[2,74,2],[4,77,2]],[[0,81,3],[3,79,1],[4,77,2]],[[0,76,2],[2,79,2],[4,76,2]],[[0,74,2],[2,70,2],[4,74,2]],[[0,72,4],[4,67,2]],
+        [[0,69,2],[2,74,2],[4,77,2]],[[0,76,3],[3,72,1],[4,69,2]],[[0,70,2],[2,74,2],[4,77,2]],[[0,72,2],[2,69,2],[4,72,2]],[[0,70,2],[2,74,1],[3,79,1],[4,77,2]],[[0,76,2],[2,74,2],[4,72,2]],[[0,77,4],[4,72,2]],[[0,77,6]],
+        [[0,74,4],[4,77,2]],[[0,72,4],[4,69,2]],[[0,70,4],[4,74,2]],[[0,72,6]],[[0,77,2],[2,74,2],[4,70,2]],[[0,72,2],[2,69,2],[4,65,2]],[[0,67,2],[2,70,2],[4,74,2]],[[0,76,4],[4,72,2]],
+        [[0,74,2],[2,77,2],[4,81,2]],[[0,82,2],[2,77,2],[4,74,2]],[[0,81,2],[2,77,2],[4,72,2]],[[0,79,4],[4,76,2]],[[0,74,2],[2,77,2],[4,74,2]],[[0,72,2],[2,76,2],[4,79,2]],[[0,77,4],[4,72,2]],[[0,69,2],[2,72,2],[4,77,2]]],
+      voice(t,m,d){mBox(t,m,Math.max(d,.5)+.5,.085);},
+      back(t,s,c,d){
+        if(s===0)note(t,midi(c[0]),d*5,.1,'triangle',.01);
+        if(s===2||s===4)for(let i=1;i<4;i++)note(t,midi(c[i]),d*1.5,.024,'triangle');
+      }},
+    /* an upbeat march in A minor for battles */
+    battle:{spm:256,bar:8,g:.27,chords:bars('Am F C G Am F Dm E Am F C G Am F Dm E'),
+      lead:[[[0,69,2],[2,72,1],[3,76,1],[4,81,2],[6,79,2]],[[0,77,2],[2,76,1],[3,72,1],[4,69,4]],[[0,72,2],[2,76,1],[3,79,1],[4,76,2],[6,72,2]],[[0,74,2],[2,71,1],[3,67,1],[4,74,4]],[[0,76,1],[1,76,1],[2,81,2],[4,79,2],[6,76,2]],[[0,72,1],[1,72,1],[2,77,2],[4,76,2],[6,72,2]],[[0,74,2],[2,77,2],[4,81,2],[6,77,2]],[[0,76,4],[4,80,2],[6,83,2]],
+        [[0,69,6],[6,72,2]],[[0,72,6],[6,69,2]],[[0,67,6],[6,72,2]],[[0,71,6],[6,74,2]],[[0,76,6],[6,74,2]],[[0,72,6],[6,74,2]],[[0,74,4],[4,77,4]],[[0,76,4],[4,71,2],[6,68,2]]],
+      voice(t,m,d){note(t,midi(m),d*.9,.075,'triangle');note(t,midi(m+12),d*.6,.012,'square');},
+      back(t,s,c,d){
+        if(s%2===0||s===3)note(t,midi(c[0]+(s===6?12:0)),d*.8,.11,'triangle',.008);
+        if(s%2===1)note(t,midi(c[1+((s>>1)%3)]+12),d*.7,.016,'square');
+        if(s===0||s===4)mKick(t,.09);
+        if(s===2||s===6)mNoise(t,.09,.04,'bandpass',1900);
+        if(s%2===1)mNoise(t,.03,.024,'highpass',6500);
+      }},
+    /* the same drive, darker and faster, in D minor against a boss */
+    boss:{spm:292,bar:8,g:.3,chords:bars('Dm Dm Bb Bb Gm Gm A A Dm Bb Gm A Dm Bb A A'),
+      lead:[[[0,74,2],[2,74,1],[3,77,1],[4,81,3],[7,79,1]],[[0,77,2],[2,76,2],[4,74,4]],[[0,70,2],[2,70,1],[3,74,1],[4,77,3],[7,79,1]],[[0,77,2],[2,74,2],[4,70,4]],[[0,67,2],[2,70,2],[4,74,2],[6,79,2]],[[0,82,2],[2,79,2],[4,74,4]],[[0,73,2],[2,76,2],[4,81,2],[6,85,2]],[[0,81,4],[4,76,2],[6,73,2]],
+        [[0,74,8]],[[0,77,4],[4,74,4]],[[0,79,4],[4,74,4]],[[0,76,4],[4,73,4]],[[0,81,2],[2,77,2],[4,74,2],[6,77,2]],[[0,82,2],[2,77,2],[4,74,2],[6,70,2]],[[0,81,2],[2,76,2],[4,73,2],[6,76,2]],[[0,81,8]]],
+      voice(t,m,d){note(t,midi(m),d*.9,.06,'triangle');note(t,midi(m),d*.8,.016,'sawtooth');},
+      back(t,s,c,d){
+        note(t,midi(c[0]),d*.7,s%4===0?.1:.065,'triangle',.008);
+        if(s%4===0)note(t,midi(c[0]-12+12),d*1.6,.018,'sawtooth');
+        if(s===0||s===3||s===6)for(let i=1;i<4;i++)note(t,midi(c[i]),d*.8,.012,'square');
+        if(s%2===0)mKick(t,.09);
+        if(s===2||s===6)mNoise(t,.1,.05,'bandpass',1700);
+        if(s%2===1)mNoise(t,.025,.022,'highpass',7000);
+      }},
+  };
+  const M={want:null,cur:null,i:0,next:0,delay:0,timer:null};
+  const musicOn=()=>on()&&PREF.music!==false;
+  function mStep(T,i,t){
+    const s=i%T.bar,b=Math.floor(i/T.bar)%T.chords.length,d=60/T.spm;
+    for(const n of T.lead[b])if(n[0]===s)T.voice(t,n[1],n[2]*d);
+    T.back(t,s,T.chords[b],d);
+  }
+  function mTick(){
+    if(!ctx||ctx.state!=='running')return;
+    const now=ctx.currentTime,name=M.want&&musicOn()?M.want:null;
+    if(name!==M.cur){
+      mInit();
+      mbus.gain.cancelScheduledValues(now);mbus.gain.setTargetAtTime(.0001,now,.12);
+      M.cur=name;M.i=0;M.next=now+.4+M.delay;M.delay=0;
+      if(name)mbus.gain.setTargetAtTime(TH[name].g,M.next,.25);
+    }
+    if(!name)return;
+    if(M.next<now-.5)M.next=now+.05;
+    const T=TH[name];
+    while(M.next<now+.35){mStep(T,M.i,M.next);M.i++;M.next+=60/T.spm;}
+  }
+  /* wait is how long the piece holds back, so a win or lose jingle can finish first */
+  function music(name,wait){
+    if(name===M.want)return;
+    M.want=name;M.delay=wait||0;
+    if(!M.timer)M.timer=setInterval(mTick,100);
+  }
+  /* draws a piece into a silent context, so a test can measure it without speakers */
+  function renderMusic(c,name,sec){
+    const k=[ctx,out,noise,mbus];mbus=null;wire(c,c.destination);mInit();
+    const T=TH[name];mbus.gain.value=T.g;
+    for(let i=0,t=0;t<sec;i++,t+=60/T.spm)mStep(T,i,t);
+    [ctx,out,noise,mbus]=k;
+  }
   function play(name,arg){
     if(!ctx||!on()||ctx.state!=='running')return;
     const t=performance.now();
@@ -120,5 +213,5 @@ const SND=(()=>{
     if(document.hidden){wasOn=ctx.state==='running';ctx.suspend().catch(()=>{});}
     else if(wasOn)ctx.resume().catch(()=>{});
   });
-  return {play,stopLoop,renderInto,on,names:()=>Object.keys(S),state:()=>ctx?ctx.state:'none'};
+  return {play,stopLoop,renderInto,on,names:()=>Object.keys(S),state:()=>ctx?ctx.state:'none',music,musicOn,renderMusic,piece:()=>M.cur,wanted:()=>M.want,pieces:()=>TH};
 })();

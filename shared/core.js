@@ -8,7 +8,7 @@ function seedOf(str){
 function rnd(s){const a=s[0]|0,b=s[1]|0,c=s[2]|0,d=s[3]|0;const t=(((a+b)|0)+d)|0;s[3]=(d+1)|0;s[0]=b^(b>>>9);s[1]=(c+(c<<3))|0;const r=(c<<21)|(c>>>11);s[2]=(r+t)|0;return (t>>>0)/4294967296;}
 const pick=(arr,s)=>arr[Math.floor(rnd(s)*arr.length)];
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const TUNE={eHp:2.1,eAtk:2.7,bHp:2.0,bAtk:2.5,fl:.095,foodA:14,foodP:1.25,xpA:.5,xpB:.3,lvGrow:.1,plusGrow:.3};
+const TUNE={eHp:2.1,eAtk:2.7,bHp:2.0,bAtk:2.5,fl:.095,foodA:14,foodP:1.25,xpA:.5,xpB:.3,lvGrow:.1,plusGrow:.3,replayCoin:.3,replayChest:.7};
 const floorType=w=>w>=600?'zoomies':w<300?'sleepy':'normal';
 const TYPE_NAME={sleepy:'Easy',normal:'Normal',zoomies:'Zoomies'};
 const matchup=(a,d)=>{if(!a||!d)return 0;if(ELS[a].beats===d)return 1;if(ELS[d].beats===a)return -1;return 0;};
@@ -442,10 +442,10 @@ const GIFTS=[[2,'dozer'],[4,'archer']];
 const baseCoin=(f,boss)=>Math.round((25+8*f)*(boss?3:1));
 function finishWin(G,B,floors){
   const f=B.node.floor,first=f>G.top,s=G.rs,mult=1+B.coinBonus;const res={first,chests:[],coins:0,gift:null,treasure:null};
-  res.coins=Math.round(baseCoin(f,B.node.boss)*(first?1:.5)*mult);
+  res.coins=Math.round(baseCoin(f,B.node.boss&&first)*(first?1:TUNE.replayCoin)*mult);
   const plus=(B.node.type==='zoomies'?1:0)+(B.node.boss?1:0);
-  const nChest=first?2+(B.node.boss?1:0)+(B.node.type==='zoomies'?1:0):(rnd(s)<.4?2:1);
-  for(let i=0;i<nChest;i++){const t=rollTier(f,s,first?plus:(B.node.type==='zoomies'?1:0));res.chests.push(t);G.chests[t]++;}
+  const nChest=first?2+(B.node.boss?1:0)+(B.node.type==='zoomies'?1:0):(rnd(s)<TUNE.replayChest?1:0);
+  for(let i=0;i<nChest;i++){let t=rollTier(f,s,first?plus:(B.node.type==='zoomies'?1:0));if(!first&&t>0)t--;res.chests.push(t);G.chests[t]++;}
   if(first){
     G.top=f;
     const nx=floors[f];
@@ -474,8 +474,11 @@ function doSweep(G,floors,ms){
   const total=Math.round(base);G.coins+=total;
   return {floors:G.top,coins:total,counts};
 }
-/* TODAY'S CHALLENGE: everyone borrows the same team, so the score does not depend on chests or levels. The server picks the team and the fight, see lib/daily.js */
+/* DAILY CHALLENGE: everyone borrows the same team, so the score does not depend on chests or levels. The server picks the team and the fight, see lib/daily.js */
 const DAILY_TRIES=3,LIVE_BONUS=.2,LIVE_MINUTES=30;
+/* the top of the board when a day ends. Food bags are the kind that suits the team's lowest level */
+const DAILY_PRIZES=[{to:1,chest:4,bags:3,food:10},{to:3,chest:3,bags:2,food:6},{to:10,chest:2,bags:1,food:3}];
+const dailyPrize=rank=>DAILY_PRIZES.find(p=>rank<=p.to)||null;
 function dailyG(ch){
   const owned={};ch.team.forEach(id=>{owned[id]=Object.assign(newPet(ch.lv),{star:ch.star});});
   return {team:ch.team,owned,items:[],battles:0,top:1e9};

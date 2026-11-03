@@ -752,6 +752,7 @@ html.busy .btn:not(:disabled),html.busy .sk:not(:disabled){cursor:progress}
   .login-box .btn{min-height:44px;font-size:15px;padding:4px 12px}
 }
 @media (max-width:370px){.brand{display:none}}
+@media (max-width:380px){.top-floor{display:none}.top-in{gap:5px}.top .snd-btn{width:34px;height:34px}.top .trial-btn{padding-inline:7px}}
 /* a boss this size covers its neighbours on a narrow screen */
 @media (max-width:560px){.field{--bigs:clamp(92px,25vw,116px)}}
 /* on a short phone the skills scroll, the Fight button stays in reach */
