@@ -1,16 +1,17 @@
 // Lists the wallets in line for the prize: from the top of the board down, skipping guests and test wallets, with what is needed to check each climb by hand.
-// Usage: DATABASE_URL=... TEST_WALLETS=... npm run top10 [count]
+// Usage: DATABASE_URL=... TEST_WALLETS=0x... npm run top10 [count]
 const E = require('../lib/engine.generated.cjs');
 const { q, closeDb } = require('../lib/db');
 const cfg = require('../lib/config');
 const FAST_MS = 1500;
 (async () => {
   const count = Math.max(1, +(process.argv[2] || 10)), tw = cfg.testWallets();
+  /* Vercel can hide this value when it is pulled, and a wrong list would put a test wallet in line for the prize */
+  if (!tw.length || !tw.every(w => /^0x[0-9a-f]{40}$/.test(w))) throw new Error('TEST_WALLETS must list real wallet addresses, so test wallets can be skipped. Set it by hand when running this.');
   const rows = (await q(`SELECT p.id, p.name, p.top, p.top_at, p.battles, p.wins, p.bags, p.pity_l, p.team, i.owned, i.items FROM players p JOIN inventory i ON i.player_id = p.id
     WHERE p.top > 0 AND p.wallet IS NOT NULL AND NOT (p.wallet = ANY($1::text[])) ORDER BY p.top DESC, p.top_at ASC LIMIT $2`, [tw, count])).rows;
   const skipped = (await q(`SELECT count(*) FILTER (WHERE wallet IS NULL)::int AS guests, count(*) FILTER (WHERE wallet = ANY($1::text[]))::int AS tests FROM players WHERE top > 0 AND ($2::int = 0 OR top > $2 OR (top = $2 AND top_at < $3))`, [tw, rows.length ? rows[rows.length - 1].top : 0, rows.length ? rows[rows.length - 1].top_at : new Date()])).rows[0];
   console.log(`Top ${count} wallets by highest floor, then who got there first. Skipped above the last one: ${skipped.guests} guests, ${skipped.tests} test wallets.`);
-  if (!tw.length) console.log('Warning: TEST_WALLETS is empty, so test wallets are not being skipped.');
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const log = (await q('SELECT count(*)::int AS n, sum(rounds)::bigint AS rounds, sum(ms)::bigint AS ms, min(ms / GREATEST(rounds, 1))::int AS fastest FROM battle_log WHERE player_id = $1', [r.id])).rows[0];
