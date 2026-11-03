@@ -20,7 +20,7 @@ const pct=v=>Math.round(v*100)+'%';
 const TRAITS={fly:'Flying, 15% dodge',hidden:'Hides its moves',boom:'Explodes on death',first:'Always acts first',thorns:'Thorns',taunt:'Starts with Taunt',regen:'Regenerates',revive:'Revives once'};
 const TIME_STR=t=>new Date(t*1000).toLocaleString('en-GB',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'});
 let G=null,BT=null,SP=null;
-const UI={tryN:0,view:'login',sheet:null,sheetIn:false,block:null,tab:'pet',invTab:'chest',filter:'all',limit:120,sell:{n:true,r:false,e:false,l:false},sellAsk:false,result:null,wipeAsk:false,lastTry:null,busy:false,live:null,liveAt:0,daily:null,dailyAt:0,rankTab:'climb'};
+const UI={tryN:0,view:'login',sheet:null,sheetIn:false,block:null,tab:'pet',invTab:'chest',filter:'all',limit:120,sell:{n:true,r:false,e:false,l:false},sellAsk:false,result:null,wipeAsk:false,lastTry:null,busy:false,live:null,bonus:null,liveAt:0,daily:null,dailyAt:0,rankTab:'climb'};
 /* SERVER CALLS */
 const newReqId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,10);
 /* empty when the site and the API share an address. The static copy hosted on IPFS calls the API elsewhere, so it keeps a signed ticket instead of a cookie */
@@ -246,15 +246,18 @@ function viewTower(){
       </div>
     </section>`;
 }
-/* THE REAL WHEEL: what the hamster is doing right now. The server reads it, the CDN keeps it a few seconds */
+/* THE REAL WHEEL: the page reads what the hamster is doing right now from the public status API, for display only. The coin bonus comes from the server, which goes by the chain */
 const WHEEL_ICON='<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true"><circle cx="24" cy="24" r="20" fill="none" stroke="currentColor" stroke-width="4"/><path d="M24 4v40M4 24h40M9.9 9.9l28.2 28.2M38.1 9.9L9.9 38.1" stroke="currentColor" stroke-width="2.5"/><circle cx="24" cy="24" r="4.5" fill="currentColor"/></svg>';
 function liveText(){
-  const l=UI.live,bonus=Math.round(LIVE_BONUS*100),newest=FLOORS[FLOORS.length-1];
+  const l=UI.live,b=UI.bonus,pay=Math.round(LIVE_BONUS*100),left=b&&b.bonus?Math.max(1,Math.ceil((b.until-Date.now()/1000)/60)):0,newest=FLOORS[FLOORS.length-1];
+  const on=`Battle wins pay ${pay}% more coins right now.`,off=`Battle wins pay ${pay}% more coins for ${LIVE_MINUTES} minutes after he runs.`;
   if(!l)return {c:'',t:'Squeektoshi on the wheel',d:'Checking the wheel...'};
-  if(!l.known)return {c:'',t:'Squeektoshi on the wheel',d:'The wheel cannot be read right now. Battles work as usual, without the running bonus.'};
-  if(l.running)return {c:'run',t:'Squeektoshi is running right now',d:`${fmt(l.rpm)} RPM, ${dec(l.mps)} m/s. Battle wins pay ${bonus}% more coins while he runs.`};
-  if(l.awake)return {c:'run',t:'Squeektoshi just ran',d:`${fmt(l.work)} work so far this round. Battle wins pay ${bonus}% more coins until the round ends.`};
-  return {c:'',t:'Squeektoshi is resting',d:`${newest?`He last ran ${agoText(newest.t)}. `:''}Battle wins pay ${bonus}% more coins while he runs.`};
+  if(!l.known)return {c:left?'bonus':'',t:'Squeektoshi on the wheel',d:`The wheel cannot be read right now. ${left?on:off}`};
+  if(l.running||l.awake){
+    const stat=l.running?`${fmt(l.rpm)} RPM, ${dec(l.mps)} m/s.`:`${fmt(l.work)} work so far this round.`;
+    return {c:'run'+(left?' bonus':''),t:l.running?'Squeektoshi is running right now':'Squeektoshi just ran',d:`${stat} ${left?on:`The ${pay}% coin bonus starts once this run is on the chain, about 15 minutes after he starts.`}`};
+  }
+  return {c:left?'bonus':'',t:'Squeektoshi is resting',d:left?`He ran recently, so battle wins pay ${pay}% more coins for about ${left} more min.`:`${newest?`He last ran ${agoText(newest.t)}. `:''}${off}`};
 }
 const liveSpin=()=>{const l=UI.live;return l&&l.running&&l.rpm?clamp(60/l.rpm,.3,4)+'s':'1.6s';};
 function liveStrip(){
@@ -267,9 +270,20 @@ function applyLive(){
   el.className='sweep live '+x.c;el.style.setProperty('--spin',liveSpin());
   $('#live-t').textContent=x.t;$('#live-d').textContent=x.d;
 }
+const STATUS_URL='https://api.squeekchain.com/v1/status';
+function parseWheel(j){
+  const m=j&&j.schemaVersion===1?j.measurement:null;
+  if(!m||m.freshness!=='online'||m.provenance!=='hardware'||m.coreStatus==='COUNTER_FAULT')return {known:false};
+  const rpm=(+m.rpmMilli||0)/1000,work=j.builder&&j.builder.status==='available'&&j.builder.queued?(+j.builder.queued.openRoundWorkUnits||0):0,running=rpm>=5||m.coreStatus==='ACTIVE';
+  return {known:true,running,awake:running||work>0,rpm:Math.round(rpm),mps:Math.round((+m.speedMmPerSecond||0)/100)/10,work};
+}
 async function loadLive(){
   UI.liveAt=Date.now();
-  try{UI.live=await api('/api/live');}catch(e){UI.live={known:false};}
+  const [wheel,bonus]=await Promise.all([
+    fetch(STATUS_URL,window.AbortSignal&&AbortSignal.timeout?{signal:AbortSignal.timeout(6000)}:{}).then(r=>r.ok?r.json():null).then(parseWheel,()=>({known:false})),
+    api('/api/live').catch(()=>null)
+  ]);
+  UI.live=wheel;UI.bonus=bonus;
   applyLive();
 }
 /* TODAY'S CHALLENGE */
@@ -729,7 +743,7 @@ function viewResult(){
   const nextF=r.floor+1,hasNext=w.first&&nextF<=FLOORS.length;
   return `<section class="res win">${pic('win_pet','')}<h1>${w.first?`Floor ${r.floor} cleared!`:`Floor ${r.floor} won again`}</h1>
     <div class="big-coin num">${coin}+${fmt(w.coins)}</div>
-    ${w.live?`<p class="hint">Squeektoshi is on the wheel, so this win paid ${Math.round(LIVE_BONUS*100)}% more coins.</p>`:''}
+    ${w.live?`<p class="hint">Squeektoshi ran in the last half hour, so this win paid ${Math.round(LIVE_BONUS*100)}% more coins.</p>`:''}
     <p class="num">${all.length} chest${all.length>1?'s':''} added to your inventory${w.treasure?`, including a treasure chest because the hamster slept ${dec(w.treasure.hours)} hours`:''}.</p>
     <div class="rewards">${cards.join('')}</div>
     ${w.first&&G.top===FLOORS.length?'<p>You cleared every floor so far. New floors appear when the hamster runs again.</p>':''}
@@ -1469,7 +1483,7 @@ function codexRules(){
       <li>A full Rage bar unlocks the big skill. Attacking and being hit both build Rage.</li>
       <li>Melee attacks and many enemy attacks only reach the front row. The first pet in your team is the front row.</li>
       <li>Cleared floors stay cleared. Losing costs nothing, so replay as much as you like for coins and chests. Leaving a battle after its first turn counts as a loss, and every new try has new luck.</li>
-      <li>While Squeektoshi is on the wheel, battle wins pay ${Math.round(LIVE_BONUS*100)}% more coins. The Tower screen shows what he is doing right now.</li>
+      <li>For ${LIVE_MINUTES} minutes after Squeektoshi runs, battle wins pay ${Math.round(LIVE_BONUS*100)}% more coins. A run counts once it is on the chain, and the Tower screen shows what he is doing right now.</li>
       <li>Today's Challenge gives everyone the same team and the same fight, made from the hamster's biggest run of the day before. You get ${DAILY_TRIES} tries, fewest rounds wins, and your first win of the day pays a chest.</li>
       <li>Chests go to your inventory and open from there. Use Sweep once per day to collect rewards from cleared floors.</li>
       <li>Coins buy food and blind bags in the Shop. Feed a hamster to 100% and run the wheel to earn levels.</li>

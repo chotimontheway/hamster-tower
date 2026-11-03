@@ -475,7 +475,7 @@ function doSweep(G,floors,ms){
   return {floors:G.top,coins:total,counts};
 }
 /* TODAY'S CHALLENGE: everyone borrows the same team, so the score does not depend on chests or levels. The server picks the team and the fight, see lib/daily.js */
-const DAILY_TRIES=3,LIVE_BONUS=.2;
+const DAILY_TRIES=3,LIVE_BONUS=.2,LIVE_MINUTES=30;
 function dailyG(ch){
   const owned={};ch.team.forEach(id=>{owned[id]=Object.assign(newPet(ch.lv),{star:ch.star});});
   return {team:ch.team,owned,items:[],battles:0,top:1e9};

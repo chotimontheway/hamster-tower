@@ -21,7 +21,9 @@ The **Test panel** button adds coins, chests and food, unlocks all pets, resets 
 
 ## The real hamster in the game
 
-The Tower screen shows what Squeektoshi is doing right now, read from the public Squeekchain status API at `/v1/status`. The wheel on the screen turns at his real speed. While he runs, and until the 10 minute round he ran in closes, battle wins pay 20% more coins. A stale, simulated or failed reading counts as unknown and pays no bonus, and the game keeps working.
+The Tower screen shows what Squeektoshi is doing right now, read by the page itself from the public status API at `/v1/status`. The wheel on the screen turns at his real speed. A stale, simulated or failed reading counts as unknown, and the game keeps working. The page reads it rather than the server because the API's Cloudflare answers Vercel's servers with a 403 challenge, and the docs say the API is for display anyway.
+
+For 30 minutes after a round with work ends, battle wins pay 20% more coins. The server decides this from the rounds on the chain, so no page can claim it. A run reaches the chain a few minutes after its 10 minute round closes, so the bonus starts up to about 15 minutes after he starts.
 
 ## Today's Challenge
 

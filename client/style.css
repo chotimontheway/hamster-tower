@@ -110,7 +110,7 @@ small{font-size:12px;color:var(--muted)}
 .sweep p{font-size:13px;color:var(--muted)}
 /* the real wheel turns at the real speed while the hamster runs */
 .live-wheel{display:flex;width:58px;height:58px;align-items:center;justify-content:center;color:var(--line2)}
-.live.run{border-color:var(--green)}
+.live.run,.live.bonus{border-color:var(--green)}
 .live.run .live-wheel{color:var(--green)}
 .live.run .live-wheel svg{animation:live-spin var(--spin,1.6s) linear infinite}
 .live.run h2{color:var(--mint)}

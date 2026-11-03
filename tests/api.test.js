@@ -3,12 +3,12 @@ const E = require('../lib/engine.generated.cjs');
 const BASE = process.argv[2] || 'http://localhost:3000';
 let passed = 0, failed = 0;
 const check = (name, ok, extra) => { if (ok) { passed++; console.log('  ok   ' + name); } else { failed++; console.log('  FAIL ' + name + (extra ? ' -> ' + JSON.stringify(extra).slice(0, 200) : '')); } };
-function client() {
+function client(base) {
   let cookie = '';
   return async function call(path, body, headers) {
     const init = { method: body === undefined ? 'GET' : 'POST', headers: Object.assign({ 'content-type': 'application/json' }, cookie ? { cookie } : {}, headers || {}) };
     if (body !== undefined) init.body = JSON.stringify(body);
-    const r = await fetch(BASE + path, init);
+    const r = await fetch((base || BASE) + path, init);
     const sc = r.headers.get('set-cookie');
     if (sc) cookie = sc.split(';')[0];
     let j = {};try { j = await r.json(); } catch (e) {}
@@ -402,37 +402,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const never = await guest();
   check('someone who never reached a board has no public page', (await fetch(BASE + '/api/player?id=' + (await never('/api/me')).body.player.id)).status === 404);
 
-  console.log('The real wheel');
-  const liveRes = await fetch(BASE + '/api/live');
-  check('the wheel status can be kept by the CDN for a few seconds', (liveRes.headers.get('cache-control') || '').includes('s-maxage=8'));
-  check('it answers whether or not the wheel can be read', typeof (await liveRes.json()).known === 'boolean');
-  if (process.env.LIVE_STUB_PORT) {
-    const WHEEL = { code: 200, body: null };
-    const srv = require('http').createServer((q, s) => { s.statusCode = WHEEL.code;s.setHeader('content-type', 'application/json');s.end(JSON.stringify(WHEEL.body)); }).listen(+process.env.LIVE_STUB_PORT);
-    const wheel = (rpmMilli, work, o) => Object.assign({ schemaVersion: 1, measurement: Object.assign({ freshness: 'online', provenance: 'hardware', coreStatus: 'IDLE', rpmMilli, speedMmPerSecond: rpmMilli / 70 }, o || {}), builder: { status: 'available', queued: { openRoundWorkUnits: String(work) } } });
-    const live = async () => { await sleep(30); return fetch(BASE + '/api/live').then(r => r.json()); };
-    WHEEL.body = wheel(0, 0);let l = await live();
-    check('resting: known, not running, no bonus', l.known === true && l.running === false && l.awake === false, l);
-    WHEEL.body = wheel(62000, 0);l = await live();
-    check('running: speed and bonus', l.running === true && l.awake === true && l.rpm === 62 && l.mps > 0, l);
-    WHEEL.body = wheel(0, 120);l = await live();
-    check('stopped for a moment inside a round with work: the bonus holds', l.running === false && l.awake === true && l.work === 120, l);
-    WHEEL.body = wheel(0, 0, { coreStatus: 'ACTIVE' });l = await live();
-    check('the device saying active counts as running', l.running === true, l);
-    for (const [name, body] of [['a stale reading', wheel(62000, 5, { freshness: 'stale' })], ['a simulated reading', wheel(62000, 5, { provenance: 'simulated' })], ['a counter fault', wheel(62000, 5, { coreStatus: 'COUNTER_FAULT' })], ['an unknown API version', Object.assign(wheel(62000, 5), { schemaVersion: 2 })], ['no reading at all', { schemaVersion: 1, measurement: null }]]) {
-      WHEEL.body = body;l = await live();
-      check(name + ' is unknown, with no bonus', l.known === false && !l.awake, l);
-    }
-    WHEEL.code = 500;l = await live();
-    check('a failed read is unknown, with no bonus', l.known === false, l);
-    const firstClear = async () => { const c = await guest(); return playOut(c, await c('/api/fight/start', { floor: 1 })); };
-    let w = await firstClear();
-    check('a win pays normally when the wheel cannot be read', w.body.over === 'win' && w.body.res.coins === 33 && w.body.res.live === false, w.body.res);
-    WHEEL.code = 200;WHEEL.body = wheel(0, 0);await sleep(30);w = await firstClear();
-    check('a win pays normally while he rests', w.body.res.coins === 33 && w.body.res.live === false, w.body.res);
-    WHEEL.body = wheel(62000, 300);await sleep(30);w = await firstClear();
-    check('a win pays 20% more while he runs', w.body.res.coins === 40 && w.body.res.live === true, w.body.res);
-    srv.close();
+  console.log('The hamster bonus');
+  const { bonusOf } = require('../lib/live');
+  const liveRes = await fetch(BASE + '/api/live'), lj = await liveRes.json();
+  check('the CDN can keep it for a few seconds', (liveRes.headers.get('cache-control') || '').includes('s-maxage=15'));
+  check('it answers from the newest round on the chain', typeof lj.bonus === 'boolean' && lj.ran >= floors[floors.length - 1].t && lj.until > lj.ran, lj);
+  const fl = [{ t: 1000 }, { t: '5000' }], end = 5000 + 600 + E.LIVE_MINUTES * 60;
+  check('the bonus lasts 30 minutes after the round ends', bonusOf(fl, 5300).bonus === true && bonusOf(fl, end - 1).bonus === true && bonusOf(fl, end).bonus === false && E.LIVE_MINUTES === 30, bonusOf(fl, end));
+  check('with no floors there is no bonus', bonusOf([], 1).bonus === false);
+  const firstClear = async base => { const c = client(base); await c('/api/auth/guest', {}); return playOut(c, await c('/api/fight/start', { floor: 1 })); };
+  let cleared = await firstClear();
+  check('a win pays what the server says', cleared.body.over === 'win' && cleared.body.res.live === lj.bonus && cleared.body.res.coins === (lj.bonus ? 40 : 33), { lj, res: cleared.body.res });
+  if (process.env.LIVE_ON_BASE) {
+    cleared = await firstClear(process.env.LIVE_ON_BASE);
+    check('while the bonus is on a win pays 20% more and says so', cleared.body.over === 'win' && cleared.body.res.live === true && cleared.body.res.coins === 40, cleared.body.res);
   }
 
   console.log('The boards');
