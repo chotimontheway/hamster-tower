@@ -29,7 +29,7 @@ For 30 minutes after a round with work ends, battle wins pay 20% more coins. The
 
 The biggest round the hamster ran the day before sets one team and one fight for everyone, so the score does not depend on chests or levels. Each player gets 3 tries a day, and a try is used when its first turn is played. Fewest rounds wins, then the most HP left, then whoever got there first. The first win of the day pays one chest, and the chest gets better the more the hamster ran the day before.
 
-When a day ends, the top 10 get rewards the next time they open the game. Rewards go out 15 minutes after midnight UTC, when the last battle of the day has ended, and test wallets get none.
+When a day ends, the top 10 wallets get rewards the next time they open the game. Guests stay on the board, but only connected wallets count, so the next wallet moves up, and test wallets get none. Rewards go out 15 minutes after midnight UTC, when the last battle of the day has ended. The icon on each board opens the wallets in line and, for the Daily Challenge, the winners of the last finished day.
 
 | Rank | Chest | Blind Bags | Food bags that suit the team |
 |---|---|---|---|
@@ -40,6 +40,44 @@ When a day ends, the top 10 get rewards the next time they open the game. Reward
 The game's own bot plays each draw to set the enemy strength where it wins about 65% of the time, because teams and enemies differ too much for one fixed strength. The first request of a day builds the challenge and saves it in `daily_days`, so a round settled late cannot change it. It plays through the same server turns as a floor and never touches the climb.
 
 A first clear, a boss win or a challenge win can be shared on X. The picture is drawn on the player's device and only leaves it if they post it.
+
+## The upper tower
+
+The first floors stay simple. From floor 30 a full set of gear is not enough: the floor asks for the right pets, the right set and the right move at the right time. All of it grows until floor 200, see `hardAt` in `shared/core.js`.
+
+- **Elements.** A hit with the element that beats the target is 40% stronger and a hit against it 25% weaker on the first floors. From floor 30 the gap grows to 80% and 60% at floor 200, both ways. The floor screen names the best element.
+- **Strikes.** Bosses and tier 3 enemies charge a strike, and from floor 30 a charging enemy acts last in the next turn, so the warning always comes in time. A strike hits harder the higher the floor. An Interrupt skill stops it on any floor, and from floor 30 so do Stun, Freeze and Sleep. Control on a skill or Rage skill always lands on a charging enemy, a basic attack keeps its small chance. A shield or Taunt softens it. Some strikes suck away shields first, so a shield is not always enough. Each element has a cheap pet that can interrupt: Little Blade, Seed Forest Archer, Little Dozer, Volt Gunner, Little Sailor and Alchemist. Their skills have a cooldown, so the question is when to use them.
+- **Spikes.** From floor 50 some enemies raise Spikes until the end of next turn. Every hit on them hurts the attacker and goes through shields. Spamming attacks into them costs a lot of HP.
+- **Sets.** 4 pieces of one set do something big: Miner +20% Bite, Knight a big starting shield and 40% less from strikes, Wizard reactions twice as strong and 20 Rage each, Hunter +60% crit damage and never misses, Nurse 6% HP each action and immune to Poison, Burn and Bleed, Thunder Rage skills 50% stronger with 30 Rage at the start and immune to Static. Bosses show which set suits them.
+- **Guard.** Every pet can Guard instead of acting: 60% less from hits that whole turn, whoever acts first, and 20 Rage. Any team can answer a strike or wait out Spikes this way.
+- **Getting the right pets.** Little Sailor comes at floor 8, Little Sparky at floor 18 and Corn Farmer at floor 28, so every element is in before elements start to matter. A player past those floors gets them one win at a time. Common pets can be adopted in the Shop for 1,000 coins and Rare pets for 3,000. Epic and Legendary pets only come from blind bags and chests.
+- **Raising pets.** A hamster below your strongest gains up to 4 times the XP from a run, so raising a new pet to 80% of your best costs less than half of what it did.
+- **Saved teams.** Six slots on the Team screen hold a team and what it wears, and change both in one tap. Gear in a saved team is safe from mass selling and merging.
+- **Strength of a floor.** Enemies are drawn from the round hash, so some draws used to be far harder than their floor number. `DANGER` in `shared/data.js` holds how hard each enemy is, measured by simulating every floor, and a floor uses it to even out its strength. Below floor 30 this can only make a floor easier, and the first 10 floors are untouched. Bosses sit a little above the floors around them, and enemies keep growing faster above floor 50.
+
+The Daily Challenge keeps its own rules: everyone gets the same team with no gear, and its bot sets the strength each day.
+
+Measured with bots on the real 524 floors on 2026-11-04, with the real economy: coins, chests, bags, stars, merging and food. Hours count 5 s a turn and 10 s a battle. Each row is 8 whole climbs. No person has played these rules yet.
+
+| Player | Hours to floor 30 | Floor 100 | Floor 200 | Floor 524 | Level at 524 | Before: hours, level |
+|---|---|---|---|---|---|---|
+| Keeps the first 3 pets, sensible moves | 0.3 | 5.6 | 21.3 | 136 | 298 | 67, 211 |
+| Keeps the first 3 pets, spams skills | 0.3 | 7.0 | 25.9 | 173 | 360 | 64, 207 |
+| Right team and set for each floor, sensible moves, raises 5 pets | 0.4 | 6.4 | 23.3 | 204 | 187 | 121, 148 |
+| The same, raises 9 pets | 0.3 | 8.5 | 37.7 | 285 | 187 | 152, 140 |
+| Right team and set, spams skills, raises 9 pets | 0.3 | 7.0 | 61.1 | 414 | 254 | 138, 130 |
+| Always the strongest pets, spams skills | 0.9 | 25.4 | 97.6 | 624 | 367 | 146, 173 |
+| Always the strongest pets, sensible moves | 1.2 | 27.3 | 102 | 665 | 345 | 181, 175 |
+
+Battles per floor for the 9 pet row, floors 1 to 10, 11 to 20, 21 to 30, 31 to 50, 51 to 75, 76 to 100, 101 to 150, 151 to 200, 201 to 300, 301 to 400, 401 to 524: 1, 1.2, 1.4, 2.6, 7.2, 9.6, 10, 23, 35, 49, 46. Before they went 1, 1.5, 7, 28, 16, 40, 30, 43, 13, 19, 14.
+
+At the level where the right team, set and moves win about 79%, on floors from 30 up: spamming skills wins 48%, a neutral team 34%, a wrong team 16%, no set bonus 28%, the wrong set 51%, and everything wrong 7%. From floor 50, spamming needs 1.5 times the level of expert play on bosses and 1.27 times on normal floors.
+
+New floors follow the same rules, because the chain only picks which enemies, map and weather a floor gets. Redrawing the enemies of every floor gave the same level curve: the level a mid build needs by band was 1, 1, 4, 7, 14, 26, 42, 62, 112, 192, 313 on the real floors and 1, 1, 3, 6, 15, 23, 39, 60, 115, 192, 313 on the redrawn ones. On made up floors past today's tower the need keeps rising, about 540 on floors 525 to 699 and 1,000 on floors 700 to 999, and no number breaks up to floor 2000. Bots raising 5 and 9 pets reached floor 1000 in all 12 climbs, in 859 and 1,143 hours, and the 9 pet bot spent 54, 107, 87, 186 and 143 battles per floor on floors 525 to 600, 601 to 700, 701 to 800, 801 to 900 and 901 to 1000.
+
+Known weak point: choosing well saves level, not time. Keeping the same 3 pets needs 1.6 to 1.9 times the level at floor 524, but all food goes to those 3, so in hours it is still the fastest way up. It was also the fastest before these rules, by a wider margin.
+
+Run `npm run test:rules` after changing any of this.
 
 ## Economy
 

@@ -53,6 +53,7 @@ function applyState(st){
   if(st.owned)G.owned=st.owned;
   if(st.items)G.items=st.items.map(a=>({uid:a[0],set:a[1],slot:a[2],rar:a[3],plus:a[4]}));
   if(st.foods)G.foods=st.foods;
+  if(st.presets)G.presets=st.presets;
 }
 async function action(type,args){
   const j=await api('/api/action',Object.assign({type,requestId:newReqId()},args||{}));
@@ -211,7 +212,7 @@ const openerKey=t=>(t.classList[0]?'.'+t.classList[0]:'')+Object.keys(t.dataset)
 function focusOpener(){if(UI.opener&&!activeDialog()){const el=$(UI.opener);if(el)el.focus({preventScroll:true});}}
 function sheetHTML(){
   const s=UI.sheet;
-  const inner={floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial,wallets:sheetWallets,guest:sheetGuest,daily:sheetDaily,player:sheetPlayer,prize:sheetPrize,share:sheetShare,prizes:sheetPrizes}[s.type](s);
+  const inner={winners:sheetWinners,floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial,wallets:sheetWallets,guest:sheetGuest,daily:sheetDaily,player:sheetPlayer,prize:sheetPrize,share:sheetShare,prizes:sheetPrizes}[s.type](s);
   return `<div class="sheet-wrap" data-act="close-bg"><div class="sheet s-${s.type}" role="dialog" aria-modal="true"><button class="x" data-act="close" aria-label="Close">×</button>${inner}</div></div>`;
 }
 
@@ -272,7 +273,7 @@ function liveText(){
 const liveSpin=()=>{const l=UI.live;return l&&l.running&&l.rpm?clamp(60/l.rpm,.3,4)+'s':'1.6s';};
 function liveStrip(){
   const x=liveText();
-  return `<section class="sweep live ${x.c}" id="live" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2 id="live-t">${x.t}</h2><p id="live-d">${x.d}</p></div><a class="btn ghost sm" href="https://squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a></section>`;
+  return `<section class="sweep live ${x.c}" id="live" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2 id="live-t">${x.t}</h2><p id="live-d">${x.d}</p></div><a class="btn ghost sm" href="https://sepolia.squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a></section>`;
 }
 function applyLive(){
   const el=$('#live');if(!el)return;
@@ -346,7 +347,7 @@ function sheetPrizes(s){
       ${cards.length?`<div class="reveal">${cards.map((r,i)=>revealCard(r,i)).join('')}</div>`:''}
       ${p.coins?`<p class="note num">Your inventory was full, so ${fmt(p.coins)} coins came instead of blind bags.</p>`:''}`;
   }).join('');
-  return `<h2>Daily Challenge rewards</h2><p>You finished in the top 10. The bags are already open and the chest is in your inventory.</p>${rows}
+  return `<h2>Daily Challenge rewards</h2><p>You finished in the top 10 wallets. The bags are already open and the chest is in your inventory.</p>${rows}
     <div class="btns"><button class="btn" data-act="to-chests">Open chests</button><button class="btn ghost" data-act="close">Done</button></div>`;
 }
 /* the wheel and the challenge are only read while the Tower screen is open, and not more often than this */
@@ -371,12 +372,12 @@ function sheetDaily(){
     <div class="mini-team">${team}</div>
     ${res.length?`<div class="res-chips">${res.map(r=>`<span class="res-chip"><b>${r.n}.</b> ${r.d}</span>`).join('')}</div>`:''}
     <div class="sec-t">Enemies (hover a move for details, on a phone press and hold)</div>
-    <div class="stack" style="gap:8px">${n.enemies.map(id=>enemyCard(id)).join('')}</div>
+    <div class="stack" style="gap:8px">${n.enemies.map(id=>enemyCard(id,'',1)).join('')}</div>
     <div class="sec-t">Reward</div>
     <dl class="kv"><dt>First win today</dt><dd>${m.paid?'Already collected':`1 ${CHESTS[ch.chest].n}`}</dd><dt>Chest</dt><dd>The hamster did ${fmt(ch.work)} work the day before. The more he runs, the better the chest.</dd>${DAILY_PRIZES.map((p,i)=>`<dt>${i?`Rank ${DAILY_PRIZES[i-1].to+1} to ${p.to}`:'Rank 1'}</dt><dd>1 ${CHESTS[p.chest].n}, ${p.bags} Blind Bag${p.bags>1?'s':''}, ${p.food} food bags</dd>`).join('')}${m.best?`<dt>Your best</dt><dd class="num">${roundsText(m.best.rounds)}, ${m.best.hp}% HP left${m.rank?`, rank ${fmt(m.rank)}`:''}</dd>`:''}</dl>
     ${d.pub.top.length?`<div class="sec-t">Best today</div><ol class="rank">${dailyRows(d.pub.top,5)}</ol>`:''}
     <div class="btns"><button class="btn big" data-act="daily-go"${m.left?'':' disabled'}>${m.left?`Start, ${triesText(m.left)} left`:`New challenge in ${timeToReset()}`}</button><button class="btn ghost" data-act="rank-today">Full board</button></div>
-    <p class="note">A try is used when you play its first turn. Leaving after that loses the try. A new challenge starts at 00:00 UTC, and the top 10 get their rewards when they next open the game. Food bags suit your team's level.</p>`;
+    <p class="note">A try is used when you play its first turn. Leaving after that loses the try. A new challenge starts at 00:00 UTC, and the top 10 wallets get their rewards when they next open the game. Food bags suit your team's level.</p>`;
 }
 function floorTags(n){
   const t=[];
@@ -394,20 +395,28 @@ function floorRow(f){
     <span class="f-st">${st==='passed'?'Replay':st==='current'?'Climb':'Locked'}</span>
   </button>`;
 }
-function enemyCard(id,extra){
+function enemyCard(id,extra,f){
   const m=MONS[id],tr=Object.keys(TRAITS).filter(k=>m[k]);
   return `<div class="en-card">
     <span class="en-pic" style="background:${ELS[m.el].stage}">${picL(artOf(id),m.n)}</span>
     <div class="en-tx">
       <div class="en-head"><b>${m.n}</b><span class="tag el" style="--c:${ELS[m.el].c}">${picL('el_'+m.el,'')}${ELS[m.el].n}</span>${m.boss?'<span class="tag t-boss">Boss</span>':''}</div>
       <p>${m.boss?m.mech:m.ai}</p>
-      <div class="mv">${m.moves.map((x,i)=>`<span data-tip="mv:${id}:${i}" tabindex="0">${x.n}</span>`).join('')}${tr.map(k=>`<span class="tr">${TRAITS[k]}</span>`).join('')}</div>
+      <div class="mv">${m.moves.map((x,i)=>x.from&&f&&f<x.from?'':`<span data-tip="mv:${id}:${i}" tabindex="0">${x.n}</span>`).join('')}${tr.map(k=>`<span class="tr">${TRAITS[k]}</span>`).join('')}</div>
+      ${m.hint&&(!f||f>=TUNE.hardFrom)?`<p class="hint">${m.hint}</p>`:''}
       ${extra||''}
     </div></div>`;
 }
 const chestLine=(f,plus)=>{const r=bandRates(f),m={};r.forEach((p,i)=>{if(p>0){const k=Math.min(4,i+plus);m[k]=(m[k]||0)+p;}});return Object.keys(m).map(k=>CHESTS[k].n.replace(' Chest','')+' '+dec(m[k])+'%').join(', ');};
+/* how much stronger or weaker a hit with or against the element is on a floor */
+const elPct=(f,side)=>Math.round(side>0?(elRight(hardAt(f))-1)*100:(1-elWrong(hardAt(f)))*100);
+/* the elements that beat most of what is on a floor, a boss counts for more */
+function bestEls(n){
+  const sc=Object.keys(ELS).map(k=>[k,n.enemies.reduce((a,id)=>a+(MONS[id].boss?2.5:1)*matchup(k,MONS[id].el),0)]),top=Math.max(...sc.map(x=>x[1]));
+  return top>0?sc.filter(x=>x[1]===top).map(x=>x[0]):[];
+}
 function sheetFloor(s){
-  const f=+s.f,n=FLOORS[f-1],first=f>G.top,open=f<=G.top+1,b=baseCoin(f,n.boss),plus=(n.type==='zoomies'?1:0)+(n.boss?1:0);
+  const f=+s.f,n=FLOORS[f-1],first=f>G.top,open=f<=G.top+1,b=baseCoin(f,n.boss),plus=(n.type==='zoomies'?1:0)+(n.boss?1:0),best=bestEls(n);
   const nx=FLOORS[f],els=[...new Set(n.enemies.map(id=>MONS[id].el))],w=RULES.find(r=>r.id===n.rule);
   const nFirst=2+(n.boss?1:0)+(n.type==='zoomies'?1:0);
   const team=G.team.map(id=>{const p=PETS[id],good=els.some(e=>matchup(p.el,e)>0),bad=els.some(e=>matchup(p.el,e)<0);return `<span class="mini-pet">${pic('pet_'+id,p.n)}<span>${p.n}<br>${good?'<span class="good">Advantage</span>':bad?'<span class="bad">Weak against</span>':'<small>Neutral</small>'}</span></span>`;}).join('');
@@ -417,17 +426,19 @@ function sheetFloor(s){
     <div class="info-row">${floorTags(n)}<small class="num">Round ${n.round}, ${n.work} work, ${dec(n.blocks)} blocks, ran at ${TIME_STR(n.t)}</small></div>
     ${n.type==='zoomies'?'<p class="hint">The hamster ran hard this round: stronger enemies, chests one tier higher.</p>':n.type==='sleepy'?'<p class="hint">The hamster was lazy this round: weaker enemies.</p>':''}
     <p class="hint">Weather, ${w.n}: ${w.d}</p>
+    ${best.length?`<p class="hint">Best element here: ${best.map(k=>ELS[k].n).join(' or ')}. ${f>=TUNE.hardFrom?`On this floor the right element hits ${elPct(f,1)}% harder and the wrong one ${elPct(f,-1)}% softer.`:''}${best.some(k=>Object.keys(G.owned).some(id=>PETS[id].el===k))?'':' You have no pet of that element yet, you can adopt one in the Shop.'}</p>`:''}
     <div class="sec-t">Enemies on this floor (hover a move for details, on a phone press and hold)</div>
-    <div class="stack" style="gap:8px">${n.enemies.map(id=>enemyCard(id)).join('')}</div>
+    <div class="stack" style="gap:8px">${n.enemies.map(id=>enemyCard(id,'',f)).join('')}</div>
     <div class="sec-t">Rewards</div>
     <dl class="kv"><dt>First clear</dt><dd>${fmt(b)} coins and ${nFirst} chests${plus?` (${plus} tier${plus>1?'s':''} higher)`:''}</dd>
     <dt>Replay</dt><dd>${fmt(baseCoin(f,false)*TUNE.replayCoin)} coins and a ${pct(TUNE.replayChest)} chance of a chest, one tier lower</dd>
     <dt>First clear odds</dt><dd>${chestLine(f,plus)}</dd>
     ${nx&&nx.nap?`<dt>Treasure</dt><dd>The first clear gives an extra chest because the hamster slept ${dec(nx.gap/6)} hours after this floor</dd>`:''}
-    ${GIFTS.map(([gf,gid])=>f===gf&&!G.gifts[gid]?`<dt>Gift</dt><dd>${PETS[gid].n} joins the team from floor ${gf+1}</dd>`:'').join('')}</dl>
+    ${GIFTS.map(([gf,gid])=>f===gf&&!G.gifts[gid]?`<dt>Gift</dt><dd>${PETS[gid].n} joins ${G.team.length<3?'the team':'your pets'}</dd>`:'').join('')}</dl>
     <div class="sec-t">Your team</div>
     <div class="mini-team">${team}</div>
     ${res.length?`<div class="res-chips">${res.map(r=>`<span class="res-chip"><b>${r.n}.</b> ${r.d}</span>`).join('')}</div>`:''}
+    ${(G.presets||[]).some(Boolean)?`<div class="sec-t">Saved teams</div><div class="presets">${presetRows(n)}</div>`:''}
     <div class="btns"><button class="btn big" data-act="enter" data-f="${f}"${open?'':' disabled'}>${!open?`Clear floor ${G.top+1} first`:first?'Enter battle':'Replay'}</button><button class="btn ghost" data-act="nav" data-v="team">Edit team</button></div>`;
 }
 function sheetSweep(s){
@@ -566,12 +577,16 @@ function hintText(){
   const aim=previewPetAim(B,id,pl.i,pl.target);
   if(aim&&aim.length===1&&sk.ops.some(o=>o[0]==='dmg'||o[0]==='wheelHit'||o[0]==='execute')){
     const t=uById(B,aim[0]),m=matchup(u.el,t.el),mk=snapU(t.id).mark;
-    if(m>0)out.push(`${ELS[u.el].n} beats ${ELS[t.el].n}: 40% stronger.`);
-    if(m<0)out.push(`${ELS[t.el].n} beats ${ELS[u.el].n}: 25% weaker.`);
+    if(m>0)out.push(`${ELS[u.el].n} beats ${ELS[t.el].n}: ${Math.round((elRight(B.h)-1)*100)}% stronger.`);
+    if(m<0)out.push(`${ELS[t.el].n} beats ${ELS[u.el].n}: ${Math.round((1-elWrong(B.h))*100)}% weaker.`);
+    if(snapU(t.id).st.some(x=>x.k==='spikes'))out.push(`${t.n} has Spikes: every hit on it hurts the attacker.`);
     if(B.noReactP)out.push('A mono element team has no reactions.');
     else if(mk&&mk!==u.el){const r=REACT[rk(u.el,mk)];out.push(`Hitting ${t.n} triggers ${r.n}: ${r.d}`);}
     else if(!mk)out.push(`Hitting ${t.n} leaves a ${ELS[u.el].n} mark.`);
   }else if(sk.tgt==='foe')out.push('Tap an enemy to choose the target.');
+  /* a strike coming comes first, it matters more than anything else this turn */
+  const c=alive(B,'e').find(x=>x.charging);
+  if(c)out.unshift(B.hf>=TUNE.hardFrom?`<b>${c.n} strikes last this turn.</b> Interrupt, shield or Guard!`:`<b>${c.n} is about to strike.</b> Interrupt, shield or Guard!`);
   return out.join(' ');
 }
 function planRow(u){
@@ -580,8 +595,8 @@ function planRow(u){
   const pl=BT.plan[u.id];
   const skills=p.skills.map((s,i)=>{
     const cd=u.cds[s.n]||0,ok=!BT.playing&&canPick(B,u.id,i),on=pl&&pl.i===i;
-    const state=s.kind==='ult'?(u.nrg>=100?'Full Rage':`Rage ${u.nrg}%`):(s.kind==='skill'&&u.st.silence?'Silenced':cd>0?`Wait ${cd}`:s.kind==='basic'?'Basic':'Ready');
-    return `<button class="sk${s.kind==='ult'?' ult':''}${on?' on':''}" data-act="pick" data-u="${u.id}" data-i="${i}" data-tip="sk:${u.id}:${i}"${ok?'':' disabled'} id="sk-${u.id}-${i}"><b>${s.n}</b><em>${state}</em></button>`;
+    const state=s.kind==='guard'?`-${Math.round((1-TUNE.brace)*100)}%`:s.kind==='ult'?(u.nrg>=100?'Full Rage':`Rage ${u.nrg}%`):(s.kind==='skill'&&u.st.silence?'Silenced':cd>0?`Wait ${cd}`:s.kind==='basic'?'Basic':'Ready');
+    return `<button class="sk${s.kind==='ult'?' ult':''}${s.kind==='guard'?' gd':''}${on?' on':''}" data-act="pick" data-u="${u.id}" data-i="${i}" data-tip="sk:${u.id}:${i}"${ok?'':' disabled'} id="sk-${u.id}-${i}"><b>${s.n}</b><em>${state}</em></button>`;
   }).join('');
   return `<div class="plan-row${!BT.playing&&BT.focus===u.id?' focus':''}"><button class="pl-head" data-act="focus" data-id="${u.id}" data-tip="u:${u.id}">${pic('pet_'+u.ref,p.n)}<span><b>${p.n}</b><small class="num">Speed ${su.spd}<i class="hp-t" style="font-style:normal">, HP ${fmt(su.hp)}</i></small></span></button><div class="pl-skills">${skills}</div></div>`;
 }
@@ -779,7 +794,7 @@ function viewResult(){
   const w=r.res;
   const all=w.chests.slice();if(w.treasure)all.push(w.treasure.tier);
   const cards=[chestCards(all)];
-  if(w.gift)cards.push(`<div class="rw gift" style="animation-delay:240ms">${pic('pet_'+w.gift,PETS[w.gift].n)}<b>${w.giftStar?PETS[w.gift].n+' gains a star!':PETS[w.gift].n+' joins the team!'}</b><small>Gift for reaching floor ${r.floor+1}</small></div>`);
+  if(w.gift)cards.push(`<div class="rw gift" style="animation-delay:240ms">${pic('pet_'+w.gift,PETS[w.gift].n)}<b>${w.giftStar?PETS[w.gift].n+' gains a star!':PETS[w.gift].n+(G.team.includes(w.gift)?' joins the team!':' joins your pets!')}</b><small>A gift for climbing</small></div>`);
   const nextF=r.floor+1,hasNext=w.first&&nextF<=FLOORS.length;
   return `<section class="res win">${pic('win_pet','')}<h1>${w.first?`Floor ${r.floor} cleared!`:`Floor ${r.floor} won again`}</h1>
     <div class="big-coin num">${coin}+${fmt(w.coins)}</div>
@@ -799,6 +814,7 @@ function statusLine(k,v,t,u,B){
     case 'bleed':s=`Loses ${fmt(v)} extra HP every time it is hit.`;break;
     case 'regen':s=`Heals ${fmt(v)} HP at the start of each action.`;break;
     case 'thorns':s=`Attackers take ${fmt(v)} damage back.`;break;
+    case 'spikes':return `Every hit on it hurts the attacker for ${fmt(v)}, until the end of next turn.`;
     case 'atkUp':s=`+${v}% Bite.`;break;
     case 'defUp':s=`+${v}% Armor.`;break;
     case 'defDown':s=`-${v}% Armor.`;break;
@@ -823,7 +839,7 @@ function tipHTML(key){
   const [a,b,c]=key.split(':');
   if(a==='w'){const w=RULES.find(r=>r.id===b);return w?`<b>${w.n}</b><p>${w.d}</p>`:'';}
   if(a==='k'){return `<b>${ELS[b].n} mark</b><p>A hit from another element on this target triggers a reaction.</p>`;}
-  if(a==='mv'){const m=MONS[b].moves[+c];return `<b>${m.n}</b><p>${moveDesc(m)}</p>${m.charge?`<small>Charges for one action first (${m.charge}).</small>`:''}${m.cd?`<small>${m.cd} turn cooldown.</small>`:''}`;}
+  if(a==='mv'){const m=MONS[b].moves[+c];return `<b>${m.n}</b><p>${moveDesc(m)}</p>${m.from?`<small>Only from floor ${m.from}.</small>`:''}${m.charge?`<small>Charges for one action first (${m.charge}).</small>`:''}${m.charge||m.heavy?'<small>Hits harder the higher the floor.</small>':''}${m.cd?`<small>${m.cd} turn cooldown.</small>`:''}`;}
   if(a==='fd'){const f=FOODS[b];return `<b>${f.n}</b><small>${RARS[f.rar].n}, ${fmt(f.fill)} fullness</small><p>In real life: ${f.d}</p>`;}
   if(!BT)return '';
   const B=BT.B;
@@ -835,7 +851,7 @@ function tipHTML(key){
       return `<b>${u.n}</b><small>${ROLES[p.role].n}, ${ELS[p.el].n}</small>${stats}${tipStatusList(su,u,B)}`;
     }
     const m=MONS[u.ref],tr=Object.keys(TRAITS).filter(k=>m[k]).map(k=>TRAITS[k]).join(', ');
-    return `<b>${u.n}</b><small>${m.boss?'Boss, ':''}${ELS[m.el].n}${tr?'. '+tr:''}</small>${stats}<p>${m.boss?m.mech:m.ai}</p>${m.hidden?'<small>This enemy hides its moves, so they cannot be predicted.</small>':''}<ul class="tip-mv">${m.moves.map(x=>`<li><b>${x.n}.</b> ${moveDesc(x)}${x.cd?` ${u.cds[x.n]>0?u.cds[x.n]+' turns left':x.cd+' turn cooldown'}.`:''}</li>`).join('')}</ul>${tipStatusList(su,u,B)}`;
+    return `<b>${u.n}</b><small>${m.boss?'Boss, ':''}${ELS[m.el].n}${tr?'. '+tr:''}</small>${stats}<p>${m.boss?m.mech:m.ai}</p>${m.hidden?'<small>This enemy hides its moves, so they cannot be predicted.</small>':''}<ul class="tip-mv">${m.moves.filter(x=>!x.from||B.hf>=x.from).map(x=>`<li><b>${x.n}.</b> ${moveDesc(x)}${x.cd?` ${u.cds[x.n]>0?u.cds[x.n]+' turns left':x.cd+' turn cooldown'}.`:''}</li>`).join('')}</ul>${tipStatusList(su,u,B)}`;
   }
   if(a==='s'){
     const u=uById(B,b),su=snapU(b);if(!u||!su)return '';
@@ -845,7 +861,7 @@ function tipHTML(key){
   }
   if(a==='sk'){
     const u=uById(B,b),sk=PETS[u.ref].skills[+c],cd=u.cds[sk.n]||0;
-    return `<b>${sk.n}</b><p>${skillDesc(sk)}</p><small>${sk.kind==='basic'?'Basic attack, gains 22 Rage':sk.kind==='skill'?`Skill, ${sk.cd} turn cooldown, gains 14 Rage${cd>0?`. ${cd} turn${cd>1?'s':''} left`:''}`:`Rage skill, needs full Rage (now ${u.nrg}%)`}</small>`;
+    return `<b>${sk.n}</b><p>${skillDesc(sk)}</p><small>${sk.kind==='guard'?'Lasts until the end of this turn':sk.kind==='basic'?'Basic attack, gains 22 Rage':sk.kind==='skill'?`Skill, ${sk.cd} turn cooldown, gains 14 Rage${cd>0?`. ${cd} turn${cd>1?'s':''} left`:''}`:`Rage skill, needs full Rage (now ${u.nrg}%)`}</small>`;
   }
   return '';
 }
@@ -879,6 +895,17 @@ document.addEventListener('pointerdown',e=>{
 ['pointerup','pointercancel'].forEach(n=>document.addEventListener(n,()=>clearTimeout(TIP.timer),{passive:true}));
 addEventListener('scroll',tipHide,{passive:true,capture:true});
 
+/* SAVED TEAMS: the floor screen only offers the ones in use, with how many of their pets beat the floor */
+function presetRows(node){
+  const out=[];
+  for(let i=0;i<PRESETS;i++){
+    const s=(G.presets||[])[i],team=s?s.team.filter(id=>G.owned[id]):[];
+    if(node&&!team.length)continue;
+    const on=team.length>0&&team.join()===G.team.join(),fit=node?team.filter(id=>node.enemies.some(e=>matchup(PETS[id].el,MONS[e].el)>0)).length:0;
+    out.push(`<div class="preset${on?' on':''}"><span class="preset-t">${team.length?team.map(id=>picL('pet_'+id,PETS[id].n)).join(''):'<small>Empty</small>'}${node?`<small>${fit} of ${team.length} beat this floor</small>`:''}</span><span class="btns">${team.length?`<button class="btn sm${on?' ghost':''}" data-act="preset" data-op="use" data-i="${i}"${on?' disabled':''}>${on?'In use':'Use'}</button>`:''}${node?'':`<button class="btn ghost sm" data-act="preset" data-op="save" data-i="${i}">${team.length?'Replace':'Save this team'}</button>${team.length?`<button class="btn ghost sm" data-act="preset" data-op="clear" data-i="${i}">Clear</button>`:''}`}</span></div>`);
+  }
+  return out.join('');
+}
 /* TEAM SCREEN */
 function viewTeam(){
   const res=teamResonance(G.team);
@@ -899,6 +926,7 @@ function viewTeam(){
   return `<div class="head-row"><h1>Team</h1><span class="pill num">Power ${fmt(G.team.reduce((a,id)=>a+petPower(petStats(G,id)),0))}</span></div>
     <div class="slots">${slots}</div>
     ${res.length?`<div class="res-chips">${res.map(r=>`<span class="res-chip"><b>${r.n}.</b> ${r.d}</span>`).join('')}</div>`:'<p class="note">Teams with 3 different elements, or with both a Tank and a Support, get bonuses.</p>'}
+    <section class="box"><h2>Saved teams</h2><p class="note">Save this team and what it wears, then change for a floor in one tap. Gear in a saved team is safe from mass selling and merging.</p><div class="presets">${presetRows()}</div></section>
     <div class="sec-t">Your pets (${ids.length} of ${PETS_LIST.length})</div>
     <div class="pgrid">${ids.map(id=>petCard(id,true)).join('')}</div>`;
 }
@@ -937,16 +965,16 @@ function careHTML(id,o){
         <button class="btn ${UI.allAsk===id?'warn':'ghost'}" data-act="run-all" data-id="${id}"${canAll?'':' disabled'}>${UI.allAsk===id?`Tap again: feed all food to ${PETS[id].n}`:'Use all food'}</button>
         <button class="chipb${PREF.fastRun?' on':''}" data-act="fast-run" aria-pressed="${!!PREF.fastRun}">${PREF.fastRun?'Wheel animation off':'Skip wheel animation'}</button>
       </div>
-      <p class="note">A full hamster can run the wheel for random XP. Each level adds ${pct(TUNE.lvGrow)} of base stats. Food never spoils and fullness never drops on its own.</p>
+      <p class="note">A full hamster can run the wheel for random XP. Each level adds ${pct(TUNE.lvGrow)} of base stats. A hamster below your strongest gains up to ${1+TUNE.catchUp} times the XP. Food never spoils and fullness never drops on its own.</p>
     </div>
     <div class="sec-t">Feed ${PETS[id].n} (tap a food)</div>
     ${list.length?`<div class="fgrid">${list.map(f=>foodTile(id,f,o)).join('')}</div>`:`<div class="empty-note">Your pantry is empty. <button class="btn sm" data-act="nav" data-v="shop">Buy food in the Shop</button></div>`}`;
 }
 function sheetPet(s){
-  const id=s.id,p=PETS[id],o=G.owned[id],skills=`<div class="sk-list">${p.skills.map(k=>`<div class="sk-row${k.kind==='ult'?' ult':''}"><b>${k.n}</b>${skillDesc(k)} <small>${k.kind==='basic'?'Basic attack':k.kind==='skill'?'Skill, '+k.cd+' turn cooldown':'Rage skill'}.</small></div>`).join('')}</div>`;
+  const id=s.id,p=PETS[id],o=G.owned[id],skills=`<div class="sk-list">${p.skills.filter(k=>k.kind!=='guard').map(k=>`<div class="sk-row${k.kind==='ult'?' ult':''}"><b>${k.n}</b>${skillDesc(k)} <small>${k.kind==='basic'?'Basic attack':k.kind==='skill'?'Skill, '+k.cd+' turn cooldown':'Rage skill'}.</small></div>`).join('')}</div>`;
   const head=(stats)=>`<div class="p-head"><span class="p-pic r-${p.rar}" style="background:${ELS[p.el].stage}">${pic('pet_'+id,p.n)}</span><div class="p-info">
     <div class="info-row"><span class="tag" style="background:var(--rc)">${RARS[p.rar].n}</span><span class="tag el" style="--c:${ELS[p.el].c}">${pic('el_'+p.el,'')}${ELS[p.el].n}</span><span class="tag">${pic('role_'+p.role,'')}${ROLES[p.role].n}</span></div>${stats}</div></div>`;
-  if(!o)return `<div class="r-${p.rar}" style="display:contents"><h2>${p.n}</h2>${head(`<p class="note">Not owned yet. Open blind bags or high tier chests for a chance to get this pet.</p>`)}<div class="sec-t">Skills</div>${skills}</div>`;
+  if(!o)return `<div class="r-${p.rar}" style="display:contents"><h2>${p.n}</h2>${head(`<p class="note">Not owned yet. ${ADOPT[p.rar]?`You can adopt this pet for ${fmt(ADOPT[p.rar])} coins, or find it in`:'Open'} blind bags or high tier chests${ADOPT[p.rar]?'.':' for a chance to get this pet.'}</p>${ADOPT[p.rar]?`<div class="btns"><button class="btn sm" data-act="adopt" data-id="${id}"${G.coins<ADOPT[p.rar]?' disabled':''}>Adopt for ${fmt(ADOPT[p.rar])} coins</button></div>`:''}`)}<div class="sec-t">Skills</div>${skills}</div>`;
   const st=petStats(G,id),inTeam=G.team.indexOf(id)>=0,c=setCounts(G,o);
   const setLines=Object.keys(c).filter(k=>c[k]>=2).map(k=>`<div class="note"><b>${SETS[k].n} x${c[k]}:</b> ${SETS[k].p2}${c[k]>=4?' '+SETS[k].p4:''}</div>`).join('');
   const brs=BRANCHES[p.role].map(([bid,n,d])=>`<button class="bopt${o.branch===bid?' on':''}" data-act="branch" data-id="${id}" data-b="${bid}"${o.star<3?' disabled':''}><b>${n}</b>${d}</button>`).join('');
@@ -1102,12 +1130,35 @@ function viewRanksToday(){
   const m=d.me,top=d.pub.top,devs=d.pub.devs||[];
   const mine=m.best?`<section class="my-rank">${m.rank?`<div class="my-no num"><small>Your rank</small><b>${fmt(m.rank)}</b></div>`:''}<div class="my-tx"><b class="num">${roundsText(m.best.rounds)}, ${m.best.hp}% HP left</b><p>${m.left?`${triesText(m.left)} left today. Fewer rounds would move you up.`:`No tries left. A new challenge starts in ${timeToReset()}.`}</p></div><button class="btn" data-act="sheet" data-type="daily">Open</button></section>`
     :`<section class="my-rank"><div class="my-tx"><b>No score today yet</b><p>${m.left?`Win the challenge to get on this board. ${triesText(m.left)} left.`:`No tries left. A new challenge starts in ${timeToReset()}.`}</p></div><button class="btn" data-act="sheet" data-type="daily">Open</button></section>`;
-  return `${mine}${top.length||devs.length?`<ol class="rank">${dailyRows(top,50,devs)}</ol>`:'<div class="empty-note">Nobody has won the Daily Challenge today. Be the first.</div>'}
-    <p class="note">Same team and same fight for everyone. Fewest rounds first, then the most HP left, then whoever got there first. Shows the top ${fmt(Math.min(50,top.length))} of ${fmt(d.pub.total)} and refreshes about every 30 seconds. This board starts over every day, and the top 10 get chests and bags when it ends.</p>`;
+  return `${mine}${rewardCard('today')}${top.length||devs.length?`<ol class="rank">${dailyRows(top,50,devs)}</ol>`:'<div class="empty-note">Nobody has won the Daily Challenge today. Be the first.</div>'}
+    <p class="note">Same team and same fight for everyone. Fewest rounds first, then the most HP left, then whoever got there first. Shows the top ${fmt(Math.min(50,top.length))} of ${fmt(d.pub.total)} and refreshes about every 30 seconds. This board starts over every day, and the top 10 wallets get chests and bags when it ends.</p>`;
 }
-function prizeCard(){
-  const guest=PLAYER&&!PLAYER.wallet;
-  return `<section class="sweep prize">${pic('medal_1','')}<div><h2>Top 10 prize</h2><p>The top 10 wallets split the SQK that 1 Squeek earns in one day at Squeekchain mainnet.${guest?' You are playing as a guest: sign in with a wallet to qualify.':''}</p></div><button class="btn ghost" data-act="sheet" data-type="prize">Rules</button></section>`;
+/* the reward icon on each board. It opens the wallets in line, guests are skipped */
+function rewardCard(board){
+  const guest=PLAYER&&!PLAYER.wallet,climb=board==='climb';
+  const line=climb?'The top 10 wallets split the SQK that 1 Squeek earns in one day at Squeekchain mainnet.':'When the day ends, the top 10 wallets get a chest, blind bags and food bags.';
+  return `<section class="sweep prize"><button class="prize-ic" data-act="winners" data-board="${board}" aria-label="See the wallets in line for the reward">${pic(climb?'medal_1':'chest_5','')}</button><div><h2>Top 10 ${climb?'prize':'rewards'}</h2><p>${line}${guest?' You are playing as a guest: sign in with a wallet to qualify.':''}</p></div><div class="btns"><button class="btn" data-act="winners" data-board="${board}">Winners</button>${climb?'<button class="btn ghost" data-act="sheet" data-type="prize">Rules</button>':''}</div></section>`;
+}
+const prizeLine=p=>`${CHESTS[p.chest].n}, ${p.bags} blind bag${p.bags>1?'s':''}, ${p.food} food bags`;
+function winnerList(rows,right){
+  return rows.length?`<ol class="rank">${rows.map((r,i)=>`<li class="${PLAYER&&r.name===PLAYER.name?'me':''}"><b class="num">${i+1}</b>${rankName(r,'w'+right.tag+i)}<span class="rk-floor num">${right(r,i)}</span></li>`).join('')}</ol>`:'<div class="empty-note">No wallet here yet.</div>';
+}
+function sheetWinners(s){
+  const save=PLAYER&&!PLAYER.wallet?'<div class="btns"><button class="btn" data-act="guest-save">Save this guest with a wallet</button></div>':'';
+  if(s.board==='climb'){
+    const rows=(UI.ranks&&UI.ranks.l.winners)||[],right=r=>`Floor ${fmt(r.top)}<small>${agoText(r.at)}</small>`;right.tag='c';
+    return `<h2>Top 10 prize</h2><p>The top 10 wallets split the SQK that 1 Squeek earns in one day at Squeekchain mainnet. Guests stay on the board, but only connected wallets count, so the next wallet moves up.</p>
+      <div class="sec-t">In line right now</div>${winnerList(rows,right)}
+      <p class="note">This list can still change. The board is read on a date announced beforehand, and every climb is checked by hand before paying.</p>
+      <div class="btns"><button class="btn ghost" data-act="sheet" data-type="prize">Rules</button></div>${save}`;
+  }
+  const p=(UI.daily&&UI.daily.pub)||{},when=d=>new Date(d+'T12:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  const right=r=>`${roundsText(r.rounds)}<small>${r.hp}% HP left</small>`;right.tag='d';
+  const right2=r=>`${roundsText(r.rounds)}<small>${r.hp}% HP left</small>`;right2.tag='l';
+  return `<h2>Daily Challenge rewards</h2><p>When the day ends the top 10 wallets get their rewards the next time they open the game. Guests stay on the board, but only connected wallets count, so the next wallet moves up.</p>
+    <dl class="kv">${DAILY_PRIZES.map((x,i)=>`<dt class="num">${i===0?'Rank 1':`Rank ${DAILY_PRIZES[i-1].to+1} to ${x.to}`}</dt><dd><span class="prize-chest">${pic('chest_'+(x.chest+1),CHESTS[x.chest].n)}</span>${prizeLine(x)}</dd>`).join('')}</dl>
+    <div class="sec-t">In line today</div>${winnerList(p.winners||[],right)}
+    ${p.last?`<div class="sec-t">Winners of ${when(p.last.day)}</div>${winnerList(p.last.winners,right2)}`:''}${save}`;
 }
 function sheetPrize(){
   return `<h2>Top 10 prize</h2>
@@ -1167,7 +1218,7 @@ function viewRanks(){
     :`<section class="my-rank"><div class="my-tx"><b>You are not ranked yet</b><p>Clear floor 1 to enter the leaderboard.</p></div><button class="btn" data-act="sheet" data-type="floor" data-f="1">Climb floor 1</button></section>`;
   const pods=rows.slice(0,3).map((r,i)=>`<div class="pod p${i+1}${PLAYER&&r.name===PLAYER.name?' me':''}">${pic('medal_'+(i+1),'Rank '+(i+1))}<strong class="num">Floor ${fmt(r.top)}</strong>${rankName(r,i)}<small>${agoText(r.at)}</small></div>`).join('');
   const rest=rows.slice(3).map((r,k)=>({r,i:k+3})).concat((d.l.devs||[]).map(r=>({r,i:-1}))).sort((a,b)=>b.r.top-a.r.top||a.r.at-b.r.at).map(({r,i})=>`<li class="${PLAYER&&r.name===PLAYER.name?'me':''}"><b class="num">${i<0?'':i+1}</b>${rankName(r,i)}<span class="rk-floor num">Floor ${fmt(r.top)}<small>${agoText(r.at)}</small></span></li>`).join('');
-  return `${head(d.l.total)}${tabs}${mine}${prizeCard()}
+  return `${head(d.l.total)}${tabs}${mine}${rewardCard('climb')}
     ${rows.length?`<div class="pods">${pods}</div>`:'<div class="empty-note">Nobody has cleared a floor yet. Be the first.</div>'}${rest?`<ol class="rank">${rest}</ol>`:''}
     <p class="note">Ranked by the highest floor cleared. On a tie, whoever got there first stands higher. Shows the top ${fmt(Math.min(100,rows.length))} of ${fmt(d.l.total)} and refreshes about every 30 seconds. Tap a name to see that climb.</p>`;
 }
@@ -1243,6 +1294,11 @@ function foodBagCard(t,low){
     <div class="btns"><button class="btn sm" data-act="foodbag" data-t="${t}" data-n="1"${G.coins<b.cost?' disabled':''}>Buy 1</button><button class="btn ghost sm" data-act="foodbag" data-t="${t}" data-n="10"${G.coins<b.cost*10?' disabled':''}>x10</button><button class="btn ghost sm" data-act="foodbag" data-t="${t}" data-n="${Math.max(n50,2)}"${n50<2?' disabled':''}>x${n50>=2?n50:50}</button></div>
   </section>`;
 }
+function adoptBox(){
+  const list=PETS_LIST.filter(p=>ADOPT[p.rar]&&!G.owned[p.id]).sort((a,b)=>Object.keys(ELS).indexOf(a.el)-Object.keys(ELS).indexOf(b.el)||ADOPT[a.rar]-ADOPT[b.rar]);
+  return `<section class="box"><h2>Adopt a pet</h2><p class="note">Pick the pet a floor asks for. Common pets cost ${fmt(ADOPT.n)} coins and Rare pets ${fmt(ADOPT.r)}. Epic and Legendary pets only come from blind bags and chests.</p>
+    ${list.length?`<div class="adopt-grid">${list.map(p=>`<div class="adopt r-${p.rar}"><button class="adopt-p" data-act="pet" data-id="${p.id}" aria-label="View ${p.n}"><span class="adopt-pic" style="background:${ELS[p.el].stage}">${picL('pet_'+p.id,p.n)}</span><span class="adopt-tx"><b>${p.n}</b><small>${picL('el_'+p.el,'')}${ELS[p.el].n}, ${ROLES[p.role].n}</small></span></button><button class="btn sm" data-act="adopt" data-id="${p.id}"${G.coins<ADOPT[p.rar]?' disabled':''}>${coin}${fmt(ADOPT[p.rar])}</button></div>`).join('')}</div>`:'<p class="note">You own them all.</p>'}</section>`;
+}
 function viewShop(){
   const leftE=Math.max(0,PITY_E-G.pityE),leftL=Math.max(0,PITY_L-G.pityL),n50=Math.min(50,Math.floor(G.coins/BAG_COST));
   const epic=BAG_RATES.filter(r=>r[1]==='e'||r[1]==='l').reduce((a,r)=>a+r[2],0),leg=BAG_RATES.filter(r=>r[1]==='l').reduce((a,r)=>a+r[2],0);
@@ -1253,6 +1309,7 @@ function viewShop(){
       <div class="shop-grid">${FOOD_BAGS.map((b,t)=>foodBagCard(t,low)).join('')}</div>
       <button class="chipb" data-act="to-food-odds" style="align-self:flex-start">See every food and its exact odds</button>
     </section>
+    ${adoptBox()}
     <section class="bag-hero">${pic('bag','Blind bag')}
       <div class="bag-tx"><h2 class="bag-t">Blind Bag</h2><p>${BAG_COST} coins per bag. Contains gear of any rarity, or a pet.${G.bags===0?' Your first bag always gives a new pet.':''}</p>
       <div class="btns"><button class="btn big" data-act="bag" data-n="1"${G.coins<BAG_COST?' disabled':''}>Open 1 bag</button><button class="btn" data-act="bag" data-n="10"${G.coins<BAG_COST*10?' disabled':''}>Open 10</button><button class="btn" data-act="bag" data-n="${Math.max(n50,2)}"${n50<2?' disabled':''}>Quick open ${n50>=2?n50:50}</button></div>
@@ -1524,11 +1581,12 @@ function codexRules(){
       <li>Melee attacks and many enemy attacks only reach the front row. The first pet in your team is the front row.</li>
       <li>Cleared floors stay cleared. Losing costs nothing, so replay as much as you like. A replay pays ${pct(TUNE.replayCoin)} of the coins with no boss bonus, and has a ${pct(TUNE.replayChest)} chance of a chest one tier lower. Leaving a battle after its first turn counts as a loss, and every new try has new luck.</li>
       <li>For ${LIVE_MINUTES} minutes after Squeektoshi runs, battle wins pay ${Math.round(LIVE_BONUS*100)}% more coins. A run counts once it is on the chain, and the Tower screen shows what he is doing right now.</li>
-      <li>The Daily Challenge gives everyone the same team and the same fight, made from the hamster's biggest run of the day before. You get ${DAILY_TRIES} tries, fewest rounds wins, your first win of the day pays a chest, and the top 10 get chests and bags when the day ends.</li>
+      <li>The Daily Challenge gives everyone the same team and the same fight, made from the hamster's biggest run of the day before. You get ${DAILY_TRIES} tries, fewest rounds wins, your first win of the day pays a chest, and the top 10 wallets get chests and bags when the day ends.</li>
       <li>Chests go to your inventory and open from there. Use Sweep once per day to collect rewards from cleared floors.</li>
       <li>Coins buy food and blind bags in the Shop. Feed a hamster to 100% and run the wheel to earn levels.</li>
       <li>On a keyboard, 1, 2 and 3 pick a skill, Enter fights, Tab moves between buttons, Escape closes or skips, M turns all sound on or off, and N turns the music on or off.</li></ol></section>
-    <section class="box"><h2>Element cycle</h2><div class="elwheel">${ks.map(k=>`<div class="elpair"><span>${pic('el_'+k,ELS[k].n)}${ELS[k].n}</span><i>beats</i><span>${pic('el_'+ELS[k].beats,ELS[ELS[k].beats].n)}${ELS[ELS[k].beats].n}</span></div>`).join('')}</div><p class="note">An advantage is 40% stronger, a disadvantage is 25% weaker.</p></section>
+    <section class="box"><h2>Element cycle</h2><div class="elwheel">${ks.map(k=>`<div class="elpair"><span>${pic('el_'+k,ELS[k].n)}${ELS[k].n}</span><i>beats</i><span>${pic('el_'+ELS[k].beats,ELS[ELS[k].beats].n)}${ELS[ELS[k].beats].n}</span></div>`).join('')}</div><p class="note">An advantage is ${elPct(1,1)}% stronger, a disadvantage is ${elPct(1,-1)}% weaker. From floor ${TUNE.hardFrom} the gap grows, up to ${elPct(TUNE.hardTo,1)}% and ${elPct(TUNE.hardTo,-1)}% at floor ${TUNE.hardTo}.</p></section>
+    <section class="box"><h2>The upper tower</h2><ul class="stack" style="gap:5px;font-size:13.5px;color:var(--soft)"><li>From floor ${TUNE.hardFrom} a full set of gear is not enough. Look at the floor first, then bring the pets and the set that fit it.</li><li>Bosses and strong enemies charge a strike. It lands last in the next turn and hits harder the higher the floor. An Interrupt skill, Stun, Freeze, Sleep or Silence stops it, and control on a skill or Rage skill always lands on a charging enemy. A shield or Taunt softens it.</li><li>From floor 50 some enemies raise Spikes. Every hit on them hurts the attacker, so hit something else or shield that turn.</li><li>Every pet can Guard instead of acting: it takes ${Math.round((1-TUNE.brace)*100)}% less from hits that turn and gains 20 Rage.</li><li>4 pieces of one set do something big. Bosses show which set suits them on the floor screen.</li><li>You get pets as gifts on the way up, up to floor ${GIFTS[GIFTS.length-1][0]}, and you can adopt Common and Rare pets in the Shop. Saved teams on the Team screen change pets and gear in one tap.</li><li>A hamster below your strongest gains up to ${1+TUNE.catchUp} times the XP from a run, so raising the right pets costs far less than your first team did.</li></ul></section>
     <section class="box"><h2>Effects</h2><div class="st-list">${Object.keys(STS).map(k=>`<div><span class="chip" style="--c:${STS[k].c}">${STS[k].n}</span>${STS[k].d}</div>`).join('')}</div></section>
     <section class="box"><h2>Merge odds</h2><div class="rates-line num">${MERGE_RATE.map((p,i)=>`<span>Merge to +${i+1}: <b>${pct(p)}</b></span>`).join('')}</div></section>
     <section class="box"><h2>The hamster shapes the floors</h2><ul class="stack" style="gap:5px;font-size:13.5px;color:var(--soft)"><li>600 work or more makes a Zoomies floor: stronger enemies, chests one tier higher.</li><li>Under 300 work makes an Easy floor: weaker enemies.</li><li>A nap of 1 hour or more leaves a treasure chest.</li><li>Squeektoshi grows stronger with the work of the round being fought.</li><li>The round hash decides the enemies, map and weather, so everyone sees the same floor.</li></ul></section>
@@ -1588,6 +1646,7 @@ function sheetTrial(){
 const ACT={
   nav(d){UI.view=d.v;UI.sheet=null;UI.result=null;UI.sellAsk=false;UI.limit=120;if(d.v==='tower')UI.block=null;render();window.scrollTo(0,0);if(d.v==='ranks')return loadRanks();},
   sheet(d){openSheet({type:d.type,f:d.f});},
+  winners(d){openSheet({type:'winners',board:d.board});},
   close(){closeSheet();},
   'close-bg'(d,t,e){if(e.target===t)closeSheet();},
   block(d){UI.block=+d.e;render();},
@@ -1609,6 +1668,8 @@ const ACT={
   },
   'rank-today'(){UI.view='ranks';UI.rankTab='today';UI.sheet=null;UI.result=null;render();window.scrollTo(0,0);return loadRanks();},
   'rank-tab'(d){UI.rankTab=d.k;render();},
+  async preset(d){await action('preset',{op:d.op,slot:+d.i});SND.play('clink');render();toast(d.op==='use'?'Team changed':d.op==='save'?'Team saved':'Saved team cleared');},
+  async adopt(d){await action('adopt',{id:d.id});SND.play('levelup');render();toast(`${PETS[d.id].n} joined your pets`);},
   async player(d){
     const s={type:'player',id:d.id,data:null};
     openSheet(s);
@@ -1757,7 +1818,7 @@ document.addEventListener('keydown',e=>{
   }
   if(e.key==='Escape'){if(SP){if(SP.done)spinClose();else ACT['spin-skip']();return;}if(UI.sheet){closeSheet();return;}}
   if((e.key==='Enter'||e.key===' ')&&e.target.getAttribute&&e.target.getAttribute('role')==='button'){e.preventDefault();e.target.click();return;}
-  if(BT&&!BT.playing&&BT.focus&&['1','2','3'].includes(e.key)){const b=$(`#sk-${BT.focus}-${+e.key-1}`);if(b&&!b.disabled)b.click();}
+  if(BT&&!BT.playing&&BT.focus&&['1','2','3','4'].includes(e.key)){const b=$(`#sk-${BT.focus}-${+e.key-1}`);if(b&&!b.disabled)b.click();}
   if(BT&&!BT.playing&&e.key==='Enter'&&e.target===document.body){ACT.fight();}
 });
 addEventListener('resize',()=>{if(BT)WX.fit();},{passive:true});

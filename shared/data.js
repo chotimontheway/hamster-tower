@@ -34,6 +34,8 @@ const STS={
   critUp:{n:'Focus',short:'+Crit',c:'#FFE27A',good:1,d:'Raises crit chance.'},
   regen:{n:'Regen',short:'Regen',c:'#35D07F',good:1,d:'Heals at the start of each of its actions.'},
   thorns:{n:'Thorns',short:'Thorn',c:'#A8BAFF',good:1,d:'Reflects damage when hit.'},
+  braced:{n:'Guarding',short:'Guard',c:'#A8BAFF',round:1,d:'Takes much less from hits this turn.'},
+  spikes:{n:'Spikes',short:'Spikes',c:'#FF8FA3',good:1,round:1,d:'Every hit on this enemy hurts the attacker, until the end of next turn.'},
   vamp:{n:'Lifesteal',short:'Leech',c:'#F0506E',good:1,d:'Part of the damage dealt becomes HP.'},
   poison:{n:'Poison',short:'Poison',c:'#35D07F',bad:1,d:'Loses HP at the start of each of its actions, ignoring shields.'},
   burn:{n:'Burn',short:'Burn',c:'#F8A838',bad:1,d:'Loses HP at the start of each of its actions, ignoring shields.'},
@@ -44,9 +46,9 @@ const STS={
   slow:{n:'Slow',short:'Slow',c:'#8FC8FF',bad:1,round:1,d:'Lowers Speed, so this unit acts later next turn.'},
   static:{n:'Static',short:'Static',c:'#FFC94D',bad:1,stack:1,d:'At 5 stacks it discharges: loses HP and is Stunned.'},
   drowsy:{n:'Drowsy',short:'Drowsy',c:'#F06BAE',bad:1,d:'30% chance to doze off and lose its action.'},
-  sleep:{n:'Asleep',short:'Asleep',c:'#C99BFF',bad:1,d:'Loses its actions until hit or until the effect ends.'},
-  stun:{n:'Stun',short:'Stun',c:'#FFE27A',bad:1,d:'Loses its next action, then is immune to crowd control for 2 actions.'},
-  freeze:{n:'Frozen',short:'Frozen',c:'#BFEFFF',bad:1,d:'Loses its next action. The first hit on it is 30% stronger.'},
+  sleep:{n:'Asleep',short:'Asleep',c:'#C99BFF',bad:1,d:'Loses its actions until hit or until the effect ends. From floor 30 it also stops a charge.'},
+  stun:{n:'Stun',short:'Stun',c:'#FFE27A',bad:1,d:'Loses its next action, then is immune to crowd control for 2 actions. From floor 30 it also stops a charge.'},
+  freeze:{n:'Frozen',short:'Frozen',c:'#BFEFFF',bad:1,d:'Loses its next action. The first hit on it is 30% stronger. From floor 30 it also stops a charge.'},
   silence:{n:'Silence',short:'Mute',c:'#C9C3DE',bad:1,d:'Can only use basic attacks. Cancels a charging enemy move.'},
   marked:{n:'Marked',short:'Mark',c:'#FF8FA3',bad:1,d:'The next hit on this target is a guaranteed crit.'},
   blind:{n:'Blind',short:'Blind',c:'#C9C3DE',bad:1,d:'Its next single-target attack misses.'},
@@ -100,12 +102,12 @@ const TRIOS=[
   {ids:['wizard','singer','dozer'],n:'Long Dream',d:'Drowsy has a 50% chance to doze off.',drowsy:.5},
 ];
 const SETS={
-  miner:{n:'Miner',p2:'+10% coins.',p4:'+15% Bite.'},
-  knight:{n:'Knight',p2:'+15% Armor.',p4:'Starts each battle with a big shield.'},
-  wizard:{n:'Wizard',p2:'+15% Rage.',p4:'Element reactions are 30% stronger.'},
-  hunter:{n:'Hunter',p2:'+8% crit chance.',p4:'+25% crit damage.'},
-  nurse:{n:'Nurse',p2:'Healing is 15% stronger.',p4:'Heals 5% HP at the start of each action.'},
-  thunder:{n:'Thunder',p2:'+8 Speed.',p4:'Rage skills are 25% stronger.'},
+  miner:{n:'Miner',p2:'+10% coins.',p4:'+20% Bite.'},
+  knight:{n:'Knight',p2:'+15% Armor.',p4:'Starts each battle with a big shield and takes 40% less from charged strikes.'},
+  wizard:{n:'Wizard',p2:'+15% Rage.',p4:'Element reactions are twice as strong and each one gives 20 Rage.'},
+  hunter:{n:'Hunter',p2:'+8% crit chance.',p4:'+60% crit damage. Attacks never miss and ignore Dodge.'},
+  nurse:{n:'Nurse',p2:'Healing is 15% stronger.',p4:'Heals 6% HP at the start of each action. Immune to Poison, Burn and Bleed.'},
+  thunder:{n:'Thunder',p2:'+8 Speed.',p4:'Rage skills are 50% stronger, starts with 30 Rage, immune to Static.'},
 };
 const SLOTS={weapon:{n:'Weapon',stat:'Bite'},armor:{n:'Armor',stat:'HP'},hat:{n:'Hat',stat:'Armor'},charm:{n:'Charm',stat:'Crit'}};
 const SLOT_VAL={n:6,r:12,e:20,l:32};
@@ -189,10 +191,10 @@ const RUN_LUCK=[
 const D=(p,o)=>['dmg',p,o||{}],H=p=>['heal',p],SH=(p,by)=>['shield',p,by||'def'],ST=(k,v,t,ch)=>['st',k,v,t,ch],ME=(k,v,t)=>['me',k,v,t],TM=(k,v,t)=>['team',k,v,t],NR=(v,w)=>['nrg',v,w||'me'];
 const pet=(id,n,el,role,rar,b,s,u)=>{
   let h=0;for(let i=0;i<id.length;i++)h+=id.charCodeAt(i);
-  return {id,n,el,role,rar,off:h%11-5,skills:[{n:b[0],tgt:b[1],cd:0,ops:b[2],fx:b[3],kind:'basic'},{n:s[0],tgt:s[1],cd:s[2],ops:s[3],fx:s[4],kind:'skill'},{n:u[0],tgt:u[1],cd:0,ops:u[2],fx:u[3],kind:'ult'}]};
+  return {id,n,el,role,rar,off:h%11-5,skills:[{n:b[0],tgt:b[1],cd:0,ops:b[2],fx:b[3],kind:'basic'},{n:s[0],tgt:s[1],cd:s[2],ops:s[3],fx:s[4],kind:'skill'},{n:u[0],tgt:u[1],cd:0,ops:u[2],fx:u[3],kind:'ult'},{n:'Guard',tgt:'self',cd:0,ops:[['guard']],fx:'guard',kind:'guard'}]};
 };
 const PETS_LIST=[
- pet('blade','Little Blade','steel','fighter','n',['Slash','front',[D(1),ST('bleed',.12,2,.3),NR(10)],'slash'],['Rookie Slash','front',2,[D(1.6),NR(15)],'slash2'],['Blade Whirl','foes',[D(1.25),ST('bleed',.18,2)],'whirl']),
+ pet('blade','Little Blade','steel','fighter','n',['Slash','front',[D(1),ST('bleed',.12,2,.3),NR(10)],'slash'],['Rookie Slash','front',2,[D(1.6),NR(15),['break']],'slash2'],['Blade Whirl','foes',[D(1.25),ST('bleed',.18,2)],'whirl']),
  pet('knight','Chubby Knight','steel','tank','r',['Shield Bash','front',[D(.85),ST('stun',1,1,.15)],'bash'],['Steel Guard','self',3,[ME('taunt',1,2),ME('defUp',40,2),SH(1.2)],'guard'],['Iron Wall','allies',[SH(2.4),['taunt',2]],'dome']),
  pet('miner','Miner','steel','fighter','r',['Pick','front',[D(1),ST('defDown',15,2,.35)],'pick'],['Gold Vein','front',3,[D(1.8),['coin',.15]],'goldvein'],['Cave-In','foes',[D(1.35),ST('rust',25,2),ST('slow',20,1)],'rockfall']),
  pet('engineer','Gear Engineer','steel','support','r',['Wrench','foe',[D(.75),ST('slow',15,1,.4)],'wrench'],['Tighten Up','allies',3,[TM('defUp',35,2),TM('spdUp',10,2)],'gearup'],['Emergency Repair','allies',[H(1.2),SH(1.2,'atk')],'repair']),
@@ -200,7 +202,7 @@ const PETS_LIST=[
  pet('samurai','One-Seed Samurai','steel','assassin','e',['Quick Cut','low',[D(1.05),ME('critUp',10,1)],'quick'],['Single Strike','low',3,[D(2.3,{pierce:.35})],'iaido'],['Thousand Blades','foes',[D(.95,{hits:2}),ST('bleed',.15,2)],'bladestorm']),
  pet('king','Big Cheek King','steel','tank','l',['Golden Scepter','front',[D(.95),ST('weak',1,1,.3)],'scepter'],['Royal Command','allies',3,[TM('atkUp',28,2),['taunt',1]],'royal'],["King's Decree",'allies',[['extra'],SH(1.6),TM('spdUp',25,2)],'crown']),
 
- pet('archer','Seed Forest Archer','seed','ranger','n',['Arrow Shot','foe',[D(1),ST('marked',1,2,.15)],'arrow'],['Seed Arrow','foe',2,[D(1.2),ST('poison',.32,3)],'arrowpoison'],['Arrow Rain','foes',[D(1.1),ST('poison',.2,2)],'arrowrain']),
+ pet('archer','Seed Forest Archer','seed','ranger','n',['Arrow Shot','foe',[D(1),ST('marked',1,2,.15)],'arrow'],['Seed Arrow','foe',2,[D(1.2),ST('poison',.32,3),['break']],'arrowpoison'],['Arrow Rain','foes',[D(1.1),ST('poison',.2,2)],'arrowrain']),
  pet('farmer','Corn Farmer','seed','tank','n',['Pitchfork','front',[D(.85),ST('slow',15,1,.3)],'fork'],['Fertilize','self',3,[ME('regen',.7,3),['taunt',1]],'sprout'],['Harvest','foes',[D(1),['healTeam',.6]],'harvest']),
  pet('nurse','Chestnut Nurse','seed','support','r',['Gentle Tap','foe',[D(.65),ME('regen',.15,1)],'pat'],['Bandage','allyLow',2,[H(1.7),['cleanse']],'bandage'],['Emergency Care','allies',[H(1.5),TM('regen',.25,2)],'emergency']),
  pet('chef','Chubby Chef','seed','support','r',['Pan Smack','foe',[D(.85),ST('stun',1,1,.12)],'pan'],['Light Snack','allies',3,[TM('atkUp',30,2)],'snack'],['Grand Feast','allies',[H(1),TM('atkUp',40,2),NR(15,'team')],'feast']),
@@ -208,7 +210,7 @@ const PETS_LIST=[
  pet('druid','Mushroom Druid','seed','mage','e',['Spore','foe',[D(1),ST('poison',.12,2)],'spore'],['Thorn Field','foes',3,[D(.6),ST('poison',.26,3),ST('slow',15,1)],'thornfield'],['Forest Spirit','foes',[D(1.25),TM('regen',.45,2)],'forest']),
  pet('squeektoshi','Squeektoshi','seed','support','l',['Seed Nibble','foe',[D(.85),ME('regen',.2,1)],'gnaw'],['Real Spin','allies',3,[['wheelBuff']],'wheelspin'],['Golden Wheel','foes',[['wheelHit'],NR(30,'team')],'goldwheel']),
 
- pet('dozer','Little Dozer','dream','support','n',['Pillow Smack','foe',[D(.75),ST('drowsy',1,1,.2)],'pillow'],['Contagious Yawn','foe',2,[D(.45),ST('drowsy',1,2)],'yawn'],['Group Nap','foes',[ST('drowsy',1,2),['healTeam',.7]],'sleepall']),
+ pet('dozer','Little Dozer','dream','support','n',['Pillow Smack','foe',[D(.75),ST('drowsy',1,1,.2)],'pillow'],['Contagious Yawn','foe',2,[D(.45),ST('drowsy',1,2),['break']],'yawn'],['Group Nap','foes',[ST('drowsy',1,2),['healTeam',.7]],'sleepall']),
  pet('wizard','Yawning Wizard','dream','mage','r',['Dream Ray','foe',[D(1),ST('drowsy',1,1,.15)],'moonbeam'],['Sheep Rain','foes',2,[D(.8),ST('drowsy',1,1,.25)],'sheeprain'],['Giant Sheep Stampede','foes',[D(1.6),ST('drowsy',1,1)],'stampede']),
  pet('shade','Night Shade','dream','assassin','r',['Shadow Knife','foe',[D(1.1),ST('marked',1,1,.15)],'shadowstab'],['Throwing Star','back',2,[D(1.6),ST('bleed',.22,2)],'shuriken'],['Assassinate','low',[D(3),ME('dodge',1,2)],'assassinate']),
  pet('singer','Lullaby Singer','dream','support','e',['Low Note','foe',[D(.75),ST('weak',1,1,.2)],'note'],['Lullaby','foes',3,[ST('drowsy',1,2),ST('slow',15,1)],'lullaby'],['Sleepy Ballad','foes',[ST('sleep',1,2),NR(20,'team')],'ballad']),
@@ -216,15 +218,15 @@ const PETS_LIST=[
  pet('sandman','Sandman','dream','assassin','l',["Reaper's Swing",'foe',[D(1.2),ME('vamp',15,1)],'scythe'],['Death Lullaby','foes',3,[D(.95),ST('drowsy',1,1),ST('silence',1,1,.3)],'deathlull'],['Eternal Sleep','foe',[['execute',.25,2.8]],'reaper']),
 
  pet('sparky','Little Sparky','spark','mage','n',['Zap','foe',[D(1),['static',1]],'zap'],['Double Zap','rand2',2,[D(.9),['static',2]],'zap2'],['Little Thunder','foes',[D(1.3),['static',1]],'thunderlet']),
- pet('gunner','Volt Gunner','spark','ranger','r',['Rapid Fire','rand3',[D(.45),['static',1]],'burst'],['Railshot','foe',2,[D(1.7,{reactX:2})],'railgun'],['Overload','foes',[D(1.5),['static',2]],'overload']),
+ pet('gunner','Volt Gunner','spark','ranger','r',['Rapid Fire','rand3',[D(.45),['static',1]],'burst'],['Railshot','foe',2,[D(1.7,{reactX:2}),['break']],'railgun'],['Overload','foes',[D(1.5),['static',2]],'overload']),
  pet('electrician','Electrician','spark','tank','r',['Wrench Zap','front',[D(.85),['static',1]],'wrenchzap'],['Battery Shield','self',3,[ME('taunt',1,2),ME('thorns',.45,2),SH(1.1)],'battery'],['Main Breaker','foes',[D(1),['static',3],ST('slow',20,1)],'breaker']),
  pet('magician','Magician','spark','mage','e',['Playing Card','foe',[D(1.05),ST('marked',1,1,.2)],'card'],['Vanish','foe',3,[D(.85),ME('dodge',1,2),['swap']],'vanish'],['Grand Illusion','foes',[D(1.5),ST('blind',1,1),ST('silence',1,1,.3)],'magicshow']),
  pet('bomber','Bomber','spark','ranger','e',['Firecracker','foe',[D(1.05),ST('burn',.1,2,.35)],'cracker'],['Time Bomb','foe',3,[['bomb',3,2]],'timebomb'],['Cluster Bomb','foes',[D(1.2),['bomb',1,1]],'cluster']),
  pet('thor','Chubby Thunder God','spark','fighter','l',['Hammer','front',[D(1.15),['static',1]],'hammer'],['Lightning Strike','foe',2,[D(1.8),['static',2]],'lightning'],['Thunder Hammer','foes',[D(1.9),['stunChance',.5]],'thor']),
 
- pet('sailor','Little Sailor','water','fighter','n',['Anchor','front',[D(1),ST('slow',15,1,.3)],'anchor'],['Anchor Slam','front',2,[D(1.4),['push',.4]],'anchorslam'],['Big Wave','foes',[D(1.2),['push',.2],ST('slow',15,1)],'bigwave']),
+ pet('sailor','Little Sailor','water','fighter','n',['Anchor','front',[D(1),ST('slow',15,1,.3)],'anchor'],['Anchor Slam','front',2,[D(1.4),['push',.4],['break']],'anchorslam'],['Big Wave','foes',[D(1.2),['push',.2],ST('slow',15,1)],'bigwave']),
  pet('pirate','One-Eyed Pirate','water','assassin','r',['Saber Slash','foe',[D(1.1),ST('bleed',.12,2,.25)],'saber'],['Coin Grab','low',2,[D(1.6),['coin',.15]],'plunder'],['Cannon Fire','foes',[D(1.5),ST('defDown',15,2)],'cannon']),
- pet('alchemist','Alchemist','water','support','r',['Flask Toss','foe',[D(.75),ST('poison',.12,2,.4)],'flask'],['Strange Potion','foe',2,[D(.6),['healLowOp',1]],'potion'],['Flask Blast','foes',[D(1.1),ST('rust',25,2),TM('regen',.35,2)],'flaskboom']),
+ pet('alchemist','Alchemist','water','support','r',['Flask Toss','foe',[D(.75),ST('poison',.12,2,.4)],'flask'],['Strange Potion','foe',2,[D(.6),['healLowOp',1],['break']],'potion'],['Flask Blast','foes',[D(1.1),ST('rust',25,2),TM('regen',.35,2)],'flaskboom']),
  pet('diver','Diver','water','tank','r',['Harpoon','front',[D(.85),ST('bleed',.12,2,.25)],'harpoon'],['Pressure','self',3,[ME('taunt',1,2),ME('defUp',55,2)],'bubbleguard'],['Oxygen Tank','allies',[SH(2.1),H(.5)],'oxygen']),
  pet('icemage','Ice Mage','water','mage','e',['Ice Ray','foe',[D(1.05),ST('slow',20,1,.4)],'iceray'],['Ice Rain','foes',2,[D(.85),ST('slow',15,1)],'icerain'],['Blizzard','foes',[D(1.6),ST('freeze',1,1,.4)],'blizzard']),
  pet('poseidon','Trident God','water','fighter','l',['Trident Thrust','front',[D(1.15),ST('defDown',15,2,.4)],'trident'],['Whirlpool','foes',2,[D(1),ST('rust',25,2),ST('slow',15,1)],'whirlpool'],['Tsunami','foes',[D(1.85),['push',.6]],'tsunami']),
@@ -238,52 +240,56 @@ const MONS_LIST=[
  mon('husk_bug','Husk Bug','seed',1,26,5,3,3,[mv('Shell Up','self',[SH(1.8,'atk')],{when:'hitLast',cd:2}),mv('Ram','pfront',[D(1)])],{},'Shells up right after taking a hit.'),
  mon('corn_worm','Corn Worm','seed',1,28,5,0,5,[mv('Spit Poison','noPoison',[D(.5),ST('poison',.3,3)],{when:'anyNoPoison',cd:1}),mv('Gnaw','pfront',[D(1.1)])],{},'Spits poison at pets that are not poisoned yet.'),
  mon('popcorn','Popcorn Kernel','seed',2,26,7,0,2,[mv('Pop!','low',[D(3),['suicide']],{when:'turn3',fx:'mBoom'}),mv('Heat Up','self',[SH(.8,'atk')])],{},'Counts 2 actions, then explodes on the weakest pet.'),
- mon('strangle_vine','Strangle Vine','seed',2,44,6,1,3,[mv('Bind','full',[D(.6),['drain',30],ST('slow',20,1)],{when:'anyNrg60',cd:2}),mv('Squeeze','pfront',[D(1.3)])],{},'Binds pets close to full Rage and Slows them.'),
- mon('spotted_shroom','Spotted Shroom','seed',3,60,8,0,3,[mv('Regrow','allyLow',[H(1.6)],{when:'allyLow40',cd:3}),mv('Spore Burst','pfoes',[ST('poison',.26,3)],{cd:3}),mv('Cap Slam','pfront',[D(1.2)])],{},'Regrows weak allies, otherwise spreads Poison.'),
+ mon('strangle_vine','Strangle Vine','seed',2,44,6,1,3,[mv('Thorn Wall','self',[ME('spikes',.8,1)],{from:50,when:'turn3',cd:4}),mv('Bind','full',[D(.6),['drain',30],ST('slow',20,1)],{when:'anyNrg60',cd:2}),mv('Squeeze','pfront',[D(1.3)])],{},'Binds pets close to full Rage and Slows them.'),
+ mon('spotted_shroom','Spotted Shroom','seed',3,60,8,0,3,[mv('Spore Bloom','pfoes',[D(.8),ST('poison',.4,3)],{from:40,when:'turn3',cd:4,charge:'Puffing Up'}),mv('Regrow','allyLow',[H(1.6)],{when:'allyLow40',cd:3}),mv('Spore Burst','pfoes',[ST('poison',.26,3)],{cd:3}),mv('Cap Slam','pfront',[D(1.2)])],{},'Regrows weak allies, otherwise spreads Poison.'),
  mon('counting_sheep','Counting Sheep','dream',1,32,4,0,4,[mv('Three Sheep','pfront',[D(.7,{hits:3})],{when:'turn3'}),mv('Two Sheep','pfront',[D(.75,{hits:2})],{when:'turn2'}),mv('One Sheep','pfront',[D(.9)])],{},'Hits more times the longer the fight goes on.'),
  mon('ghost_pillow','Ghost Pillow','dream',1,30,5,0,3,[mv('Softly','allyLow',[H(1.5)],{when:'allyLow60',cd:2}),mv('Soft Lullaby','strong',[ST('drowsy',1,2)],{cd:3}),mv('Smother','pfront',[D(1.1)])],{},'Softly heals its weakest ally.'),
  mon('yawning_bat','Yawning Bat','dream',2,38,7,0,8,[mv('Contagious Yawn','strong',[ST('drowsy',1,2)],{cd:3}),mv('Draining Bite','lowDef',[D(1,{drain:.7})])],{fly:1},'Drains the pet with the lowest Armor.'),
  mon('insomniac_owl','Insomniac Owl','dream',2,46,8,0,9,[mv('Stare Down','self',[ME('atkUp',30,3)],{cd:4}),mv('Dive','pback',[D(1.4)])],{fly:1},'Flies over the front row to hit the back row.'),
  mon('fud_cloud','FUD Cloud','dream',2,40,5,0,5,[mv('Rumor','strong',[ST('weak',1,2),ST('silence',1,1)],{cd:3}),mv('Panic','pfoes',[ST('rust',25,2)],{cd:3}),mv('Anxiety Rain','rand3',[D(.6)])],{hidden:1},'Gives no warning. Makes the strongest pet Weak and Silenced.'),
- mon('shadow_cat','Shadow Cat','dream',3,58,11,0,10,[mv('Stalk','self',[ME('dodge',1,2),SH(.9,'atk')],{when:'noDodge',cd:2}),mv('Pounce','low',[D(1.7)])],{},'Stalks until its dodge is gone, then pounces.'),
+ mon('shadow_cat','Shadow Cat','dream',3,58,11,0,10,[mv('Death Pounce','low',[D(2.6)],{from:40,when:'turn3',cd:4,charge:'Wiggling'}),mv('Stalk','self',[ME('dodge',1,2),SH(.9,'atk')],{when:'noDodge',cd:2}),mv('Pounce','low',[D(1.7)])],{},'Stalks until its dodge is gone, then pounces.'),
  mon('stray_plug','Stray Plug','spark',1,28,5,0,6,[mv('Prick','nearStatic',[D(.7),['static',2]],{cd:1}),mv('Zap','pfront',[D(1.1)])],{},'Pricks the pet closest to 5 Static.'),
  mon('hv_firefly','High Voltage Firefly','spark',1,22,5,0,9,[mv('Flash','self',[ME('dodge',1,2)],{when:'noDodge',cd:2}),mv('Sting','rand',[D(1.2),['static',1]])],{fly:1},'Flashes to dodge first, then stings.'),
- mon('swollen_battery','Swollen Battery','spark',2,38,7,1,3,[mv('Swell','self',[ME('atkUp',30,3)],{cd:3}),mv('Leak Current','pfront',[D(.8),['static',2]])],{boom:.8},'Explodes on the tank when it dies.'),
+ mon('swollen_battery','Swollen Battery','spark',2,38,7,1,3,[mv('Live Casing','self',[ME('spikes',.7,1)],{from:50,when:'turn3',cd:4}),mv('Swell','self',[ME('atkUp',30,3)],{cd:3}),mv('Leak Current','pfront',[D(.8),['static',2]])],{boom:.8},'Explodes on the tank when it dies.'),
  mon('faulty_sensor','Faulty Sensor','spark',2,42,8,0,5,[mv('Reset','self',[H(1.5)],{when:'selfLow40',cd:3}),mv('Interference','rand',[ST('drowsy',1,2),['static',1]],{cd:2}),mv('Miscount','rand',[D(1.3)])],{hidden:1},'Random attacks, Resets below 40% HP.'),
  mon('gas_balloon','Gas Balloon','spark',2,34,6,0,6,[mv('Fee Spike','full',[['drain',40]],{when:'anyNrg60',cd:2}),mv('Fee Blast','pfront',[D(1.3)])],{},'Spikes fees right when a pet is about to use a big skill.'),
- mon('shock_coil','Shock Coil','spark',3,56,7,0,6,[mv('Charge Up','self',[SH(1.3,'atk'),ME('atkUp',20,2)],{cd:3}),mv('Chain Shock','lowDef',[D(.55,{hits:4}),['static',1]])],{},'Shocks the pet with the lowest Armor many times.'),
+ mon('shock_coil','Shock Coil','spark',3,56,7,0,6,[mv('Arc Flash','pfoes',[D(1.1),['static',2]],{from:40,when:'turn3',cd:4,charge:'Whining'}),mv('Charge Up','self',[SH(1.3,'atk'),ME('atkUp',20,2)],{cd:3}),mv('Chain Shock','lowDef',[D(.55,{hits:4}),['static',1]])],{},'Shocks the pet with the lowest Armor many times.'),
  mon('lost_goldfish','Lost Goldfish','water',1,26,4,0,4,[mv('Bubble','allyLow',[SH(1.3,'atk')],{when:'allyLow60',cd:2}),mv('Flop','pfront',[D(1.1)])],{},'Bubbles protect its weakest ally.'),
  mon('leaky_bottle','Leaky Bottle','water',1,30,5,0,2,[mv('Rusty Drip','pfront',[D(.45),ST('rust',25,2)],{cd:2}),mv('Splash','rand',[D(1.2)])],{},'Applies Rust first so the whole group hits harder.'),
- mon('slimy_snail','Slimy Snail','water',2,40,5,4,1,[mv('Retreat','self',[SH(2,'atk')],{when:'hitLast',cd:2}),mv('Slime','pfront',[D(.85),ST('slow',25,1)])],{regen:.25},'Retreats when hit. Its slime Slows pets.'),
+ mon('slimy_snail','Slimy Snail','water',2,40,5,4,1,[mv('Spiked Shell','self',[ME('spikes',.9,1),SH(.8,'atk')],{from:50,when:'turn3',cd:4}),mv('Retreat','self',[SH(1.4,'atk')],{when:'hitLast',cd:2}),mv('Slime','pfront',[D(.85),ST('slow',25,1)])],{regen:.15},'Retreats when hit. Its slime Slows pets.'),
  mon('slick_soap','Slick Soap','water',2,34,7,0,8,[mv('Slip','self',[ME('dodge',1,2)],{when:'anyNrg60',cd:2}),mv('Foam','pfront',[D(.45),ST('rust',25,2),ST('blind',1,1)],{cd:3}),mv('Smack','rand',[D(1.3)])],{},'Slips away when a pet is about to use a big skill.'),
  mon('damp_moss','Damp Moss','water',2,52,4,0,1,[mv('Spread','self',[ME('atkUp',35,9),H(.5)],{cd:2}),mv('Cover','pfront',[D(1)])],{},'Grows stronger the longer it lives.'),
  mon('whale','Whale','water',3,74,8,2,1,[mv('Dump','pfront',[D(2.2)],{cd:3,charge:'Deep Breath',fx:'mDump'}),mv('Swell','pfoes',[D(.6),ST('slow',15,1)])],{},'Takes a Deep Breath for one action, then Dumps for huge damage.'),
  mon('biting_gear','Biting Gear','steel',1,30,4,1,4,[mv('Spin Up','self',[ME('atkUp',25,3)],{when:'notHit',cd:3}),mv('Grind','pfront',[D(.85,{hits:2})])],{},'Spins up when nobody threatens it.'),
  mon('clothespin','Clothespin','steel',1,26,6,0,5,[mv('Clamp','support',[D(1.1),ST('bleed',.25,3)],{cd:1}),mv('Open Jaws','self',[SH(.9,'atk')])],{},'Clamps the support pet first.'),
  mon('sniper_bot','Sniper Bot','steel',2,32,9,0,12,[mv('Watch Mempool','self',[ME('dodge',1,2)],{when:'noDodge',cd:3}),mv('Front-Run','low',[D(1.25),ST('marked',1,1,.3)])],{first:1},'Always acts first and aims at the weakest pet.'),
- mon('walking_cage','Walking Cage','steel',2,44,7,3,3,[mv('Reinforce','allyLow',[SH(1.6,'atk')],{when:'allyLow50',cd:3}),mv('Slam Shut','pfront',[D(1.2)])],{thorns:.25,taunt:2},'Stands in front to protect allies and has thorns.'),
- mon('robot_vacuum','Robot Vacuum','steel',3,66,9,2,3,[mv('Armor Suck','shielded',[['strip'],D(.8)],{when:'anyShield',cd:2,fx:'mVacuum'}),mv('Return to Dock','self',[H(1.5),SH(.8,'atk')],{when:'selfLow40',cd:4}),mv('Wall Bash','pfront',[D(1.4),ST('defDown',15,2)])],{},'Sucks away the shield of any pet that just raised one.'),
- mon('fake_contract','Fake Contract','steel',3,46,8,0,6,[mv('Request Approval','strong',[ST('rust',25,2),ST('silence',1,1)],{cd:3}),mv('Drain','full',[D(1.4),['drain',30]])],{revive:.4},'Comes back once, then drains your Rage.'),
+ mon('walking_cage','Walking Cage','steel',2,44,7,3,3,[mv('Razor Bars','self',[ME('spikes',.8,1)],{from:50,when:'turn3',cd:4}),mv('Reinforce','allyLow',[SH(1.6,'atk')],{when:'allyLow50',cd:3}),mv('Slam Shut','pfront',[D(1.2)])],{thorns:.25,taunt:2},'Stands in front to protect allies and has thorns.'),
+ mon('robot_vacuum','Robot Vacuum','steel',3,66,9,2,3,[mv('Turbo Suction','pfoes',[['stripAll'],D(1)],{from:40,when:'turn3',cd:4,charge:'Spinning Up',fx:'mVacuum'}),mv('Armor Suck','shielded',[['strip'],D(.8)],{when:'anyShield',cd:2,fx:'mVacuum'}),mv('Return to Dock','self',[H(1.5),SH(.8,'atk')],{when:'selfLow40',cd:4}),mv('Wall Bash','pfront',[D(1.4),ST('defDown',15,2)])],{},'Sucks away the shield of any pet that just raised one.'),
+ mon('fake_contract','Fake Contract','steel',3,46,8,0,6,[mv('Liquidate','strong',[D(2.2),['drain',40]],{from:40,when:'turn3',cd:4,charge:'Pending'}),mv('Request Approval','strong',[ST('rust',25,2),ST('silence',1,1)],{cd:3}),mv('Drain','full',[D(1.4),['drain',30]])],{revive:.4},'Comes back once, then drains your Rage.'),
 ];
 const boss=(id,n,el,tier,hp,atk,def,spd,minions,moves,o,mech)=>Object.assign({id,n,el,tier,hp,atk,def,spd,minions,moves,boss:1,mech},o||{});
 const BOSS_LIST=[
- boss('alarm_clock','Alarm Clock','steel',1,130,9,1,4,['biting_gear','clothespin'],[mv('Ring','pfoes',[D(.6),ST('stun',1,1)],{cd:3,charge:'Tick Tock',fx:'mBell'}),mv('Repeat Alarm','pfront',[D(.6,{hits:3})])],{phases:[{below:.5,say:'Snooze for 5 more minutes!',ops:[H(1.2)]}]},'Rings every few turns, which can Stun the whole team.'),
- boss('thief_squirrel','Thief Squirrel','seed',1,115,8,0,11,['corn_worm','grumpy_sprout'],[mv('Stuff Cheeks','self',[H(1.5),SH(1.2,'atk')],{when:'selfLow50',cd:4}),mv('Shell Toss','pfoes',[D(.5),ST('poison',.2,2)],{cd:2}),mv('Snatch','low',[D(1,{drain:1})])],{phases:[{below:.4,say:'The squirrel starts dodging!',ops:[ME('dodge',1,2)]}]},'Snatch drains HP, Stuff Cheeks heals and raises a shield.'),
- boss('broken_faucet','Broken Faucet','water',1,140,7,1,2,['lost_goldfish','leaky_bottle'],[mv('Flood','pfoes',[D(1.3),ST('slow',20,1)],{cd:4,charge:'Water Rising',fx:'mFlood'}),mv('Rising Water','self',[ME('atkUp',20,9)],{cd:2}),mv('Spray','pfront',[D(1.2)])],{},'The longer it runs, the higher the water and the harder the Flood.'),
- boss('overloaded_charger','Overloaded Charger','spark',1,120,8,0,6,['stray_plug','hv_firefly'],[mv('Short Circuit','pfoes',[D(.7),['static',2]],{cd:3}),mv('Leak Current','nearStatic',[D(1),['static',1]])],{phases:[{below:.4,say:'Overload! Voltage spikes.',ops:[ME('atkUp',45,9)]}]},'Spreads Static on the whole team and overloads below 40% HP.'),
- boss('neighbor_cat',"Neighbor's Cat",'dream',1,125,11,0,12,['ghost_pillow','yawning_bat'],[mv('Stalk','self',[ME('dodge',1,2)],{when:'noDodge',cd:3}),mv('Toy With','strong',[D(.6),ST('drowsy',1,2)],{cd:3}),mv('Pounce','low',[D(1.5),ST('bleed',.3,2)])],{phases:[{below:.5,say:'Cat eyes glow in the dark.',ops:[ME('atkUp',30,9)]}]},'Stalks to dodge attacks, then Pounces on the weakest pet.'),
- boss('giant_vacuum','Giant Vacuum','steel',2,210,11,2,3,['robot_vacuum','biting_gear'],[mv('Bag Full','self',[['selfStun']],{when:'every6'}),mv('Suck','pfoes',[['stripAll'],D(.7),['drainAll',20]],{cd:3,fx:'mVacuum'}),mv('Dust Blast','pfoes',[ST('weak',1,2),ST('blind',1,1)],{cd:4}),mv('Ram','pfront',[D(1.4)])],{},'Sucks away shields and Rage, and stalls every few turns when its bag is full.'),
- boss('rug_puller','Rug Puller','dream',2,170,12,0,7,['fud_cloud','fake_contract'],[mv('1000% Gains','pfoes',[['gift',.8,20]],{when:'cycle3:1',fx:'mGift'}),mv('Lock Liquidity','self',[SH(2,'atk')],{when:'cycle3:2'}),mv('Rug Pull','pfoes',[['rug'],D(1.2),ST('stun',1,1)],{when:'cycle3:0',fx:'mRug'})],{},'Gives the team gains, then Rug Pulls away every buff.'),
- boss('dumping_whale','Dumping Whale','water',2,260,10,3,1,['slick_soap','slimy_snail'],[mv('Price Slide','pfoes',[D(.5),ST('rust',25,2),ST('weak',1,1)],{when:'cycle3:1',fx:'mCandle'}),mv('Dump','pfront',[D(2)],{when:'cycle3:2',fx:'mDump'}),mv('Inhale Liquidity','self',[H(1.2),SH(1.4,'atk')],{when:'cycle3:0'})],{},'The most HP in the tower. Slow, but hits very hard.'),
- boss('reorg_ghost','Reorg Ghost','spark',2,180,11,0,9,['faulty_sensor','swollen_battery'],[mv('Fork','rand3',[D(.6),['static',1]],{when:'cycle3:1'}),mv('Chain Lightning','low',[D(1.6)],{when:'cycle3:2'}),mv('Reorg','self',[['reorg']],{when:'cycle3:0',fx:'mReorg'})],{},'Reorg erases two blocks: its HP returns to where it was 2 actions ago.'),
- boss('cage_hand','Cage Cleaning Hand','seed',2,240,11,1,5,['spotted_shroom','strangle_vine'],[mv('Change Bedding','pfoes',[['clear']],{cd:5,fx:'mClean'}),mv('Pick Up','strong',[D(1.2),ST('stun',1,1)],{cd:3}),mv('Close Lid','rand',[D(.55,{hits:5})],{cd:2,phase:1}),mv('Flick','pfront',[D(1.7)])],{phases:[{below:.66,say:'The hand loses patience.',ops:[]},{below:.33,say:'Cleaning time is over!',ops:[ME('atkUp',40,9)]}]},'Has 3 phases. Change Bedding removes all effects on both sides.'),
+ boss('alarm_clock','Alarm Clock','steel',1,130,9,1,4,['biting_gear','clothespin'],[mv('Hot Bells','self',[ME('spikes',.7,1)],{from:50,when:'turn2on',cd:4}),mv('Ring','pfoes',[D(.6),ST('stun',1,1)],{cd:3,charge:'Tick Tock',fx:'mBell'}),mv('Repeat Alarm','pfront',[D(.6,{hits:3})])],{phases:[{below:.5,say:'Snooze for 5 more minutes!',ops:[H(1.2)]}],hint:'Stop Ring or it Stuns the whole team. Miner gear ends the fight sooner.'},'Rings every few turns, which can Stun the whole team.'),
+ boss('thief_squirrel','Thief Squirrel','seed',1,115,8,0,11,['corn_worm','grumpy_sprout'],[mv('Acorn Storm','pfoes',[D(.5),ST('poison',.9,3)],{from:30,when:'turn3',cd:4,charge:'Cheeks Full'}),mv('Stuff Cheeks','self',[H(1.5),SH(1.2,'atk')],{when:'selfLow50',cd:4}),mv('Shell Toss','pfoes',[D(.5),ST('poison',.2,2)],{cd:2}),mv('Snatch','low',[D(1,{drain:1})])],{phases:[{below:.4,say:'The squirrel starts dodging!',ops:[ME('dodge',1,2)]}],hint:'Its Poison goes through shields. Nurse gear is immune to it.'},'Snatch drains HP, Stuff Cheeks heals and raises a shield.'),
+ boss('broken_faucet','Broken Faucet','water',1,140,7,1,2,['lost_goldfish','leaky_bottle'],[mv('Flood','pfoes',[D(1.3),ST('slow',20,1)],{cd:4,charge:'Water Rising',fx:'mFlood'}),mv('Rising Water','self',[ME('atkUp',20,9)],{cd:2}),mv('Spray','pfront',[D(1.2)])],{hint:'It only gets stronger, so end it fast. Knight gear takes the Flood best.'},'The longer it runs, the higher the water and the harder the Flood.'),
+ boss('overloaded_charger','Overloaded Charger','spark',1,120,8,0,6,['stray_plug','hv_firefly'],[mv('Live Shell','self',[ME('spikes',.7,1)],{from:50,when:'turn2on',cd:4}),mv('Power Surge','pfoes',[D(1),['static',3]],{from:30,when:'turn3',cd:4,charge:'Humming'}),mv('Short Circuit','pfoes',[D(.7),['static',2]],{cd:3}),mv('Leak Current','nearStatic',[D(1),['static',1]])],{phases:[{below:.4,say:'Overload! Voltage spikes.',ops:[ME('atkUp',45,9)]}],hint:'Thunder gear is immune to Static, which takes away most of its danger.'},'Spreads Static on the whole team and overloads below 40% HP.'),
+ boss('neighbor_cat',"Neighbor's Cat",'dream',1,125,11,0,12,['ghost_pillow','yawning_bat'],[mv('Arched Back','self',[ME('spikes',.7,1)],{from:50,when:'turn2on',cd:4}),mv('Deep Stalk','self',[ME('dodge',3,2)],{from:50,when:'noDodge',cd:3}),mv('Killing Pounce','low',[D(2.4),ST('bleed',.4,3)],{from:30,when:'turn3',cd:4,charge:'Wiggling'}),mv('Stalk','self',[ME('dodge',1,2)],{when:'noDodge',cd:3}),mv('Toy With','strong',[D(.6),ST('drowsy',1,2)],{cd:3}),mv('Pounce','low',[D(1.5),ST('bleed',.3,2)])],{phases:[{below:.5,say:'Cat eyes glow in the dark.',ops:[ME('atkUp',30,9)]}],hint:'Deep Stalk dodges 3 hits. Hunter gear on your damage pets never misses.'},'Stalks to dodge attacks, then Pounces on the weakest pet.'),
+ boss('giant_vacuum','Giant Vacuum','steel',2,210,11,2,3,['robot_vacuum','biting_gear'],[mv('Bag Full','self',[['selfStun']],{when:'every6'}),mv('Full Power','pfoes',[['stripAll'],D(1.1),['drainAll',25]],{from:30,when:'turn3',cd:5,charge:'Revving Up',fx:'mVacuum'}),mv('Suck','pfoes',[['stripAll'],D(.7),['drainAll',20]],{cd:3,fx:'mVacuum'}),mv('Dust Blast','pfoes',[ST('weak',1,2),ST('blind',1,1)],{cd:4}),mv('Ram','pfront',[D(1.4)])],{hint:'Shields and Rage do not last here, so raw Bite works best: Miner gear.'},'Sucks away shields and Rage, and stalls every few turns when its bag is full.'),
+ boss('rug_puller','Rug Puller','dream',2,170,12,0,7,['fud_cloud','fake_contract'],[mv('1000% Gains','pfoes',[['gift',.8,20]],{when:'cycle3:1',fx:'mGift'}),mv('Lock Liquidity','self',[SH(2,'atk')],{when:'cycle3:2'}),mv('Rug Pull','pfoes',[['rug'],D(1.2),ST('stun',1,1)],{when:'cycle3:0',heavy:1,fx:'mRug'})],{hint:'Buffs do not last here. Stun it just before Rug Pull. Knight and Miner gear do not rely on buffs.'},'Gives the team gains, then Rug Pulls away every buff.'),
+ boss('dumping_whale','Dumping Whale','water',2,260,10,3,1,['slick_soap','slimy_snail'],[mv('Price Slide','pfoes',[D(.5),ST('rust',25,2),ST('weak',1,1)],{when:'cycle3:1',fx:'mCandle'}),mv('Dump','pfront',[D(2)],{when:'cycle3:2',heavy:1,fx:'mDump'}),mv('Wall of Sells','self',[H(1.2),SH(1.4,'atk'),ME('spikes',.7,1)],{from:50,when:'cycle3:0'}),mv('Inhale Liquidity','self',[H(1.2),SH(1.4,'atk')],{when:'cycle3:0'})],{hint:'Shield or Stun just before Dump, and leave it alone behind its Wall of Sells. Knight gear takes it best.'},'The most HP in the tower. Slow, but hits very hard.'),
+ boss('reorg_ghost','Reorg Ghost','spark',2,180,11,0,9,['faulty_sensor','swollen_battery'],[mv('Fork','rand3',[D(.6),['static',1]],{when:'cycle3:1'}),mv('Chain Lightning','low',[D(1.6)],{when:'cycle3:2',heavy:1}),mv('Reorg','self',[['reorg']],{when:'cycle3:0',fx:'mReorg'})],{hint:'Slow damage gets erased. Save Rage skills for one burst, Thunder gear makes it far bigger.'},'Reorg erases two blocks: its HP returns to where it was 2 actions ago.'),
+ boss('cage_hand','Cage Cleaning Hand','seed',2,240,11,1,5,['spotted_shroom','strangle_vine'],[mv('Rubber Glove','self',[ME('spikes',.7,1)],{from:50,when:'turn2on',cd:4}),mv('Lid Slam','pfoes',[D(1.2)],{from:30,when:'turn3',cd:4,charge:'Reaching In'}),mv('Change Bedding','pfoes',[['clear']],{cd:5,fx:'mClean'}),mv('Pick Up','strong',[D(1.2),ST('stun',1,1)],{cd:3}),mv('Close Lid','rand',[D(.55,{hits:5})],{cd:2,phase:1}),mv('Flick','pfront',[D(1.7)])],{phases:[{below:.66,say:'The hand loses patience.',ops:[]},{below:.33,say:'Cleaning time is over!',ops:[ME('atkUp',40,9)]}],hint:'Spores and Bleed wear the team down. Nurse gear is immune to both.'},'Has 3 phases. Change Bedding removes all effects on both sides.'),
 ];
 const MONS=Object.fromEntries([...MONS_LIST,...BOSS_LIST].map(m=>[m.id,m]));
+/* how hard each enemy is, measured by simulating every floor of the tower. 1 is an average enemy. A floor uses this to even out its strength */
+const DANGER={grumpy_sprout:1.01,husk_bug:1.58,corn_worm:0.18,popcorn:0.61,strangle_vine:1.24,spotted_shroom:1.73,counting_sheep:0.9,ghost_pillow:0.17,yawning_bat:1.13,insomniac_owl:1.41,fud_cloud:0.81,shadow_cat:1.74,stray_plug:1.01,hv_firefly:1.58,swollen_battery:0.93,faulty_sensor:0.97,gas_balloon:0.93,shock_coil:1.38,lost_goldfish:1.01,leaky_bottle:1.03,slimy_snail:1.02,slick_soap:0.67,damp_moss:0.69,whale:1.84,biting_gear:1.01,clothespin:1.01,sniper_bot:1.29,walking_cage:1.39,robot_vacuum:2.04,fake_contract:1.23,alarm_clock:0.91,thief_squirrel:0.86,broken_faucet:0.47,overloaded_charger:0.88,neighbor_cat:0.62,giant_vacuum:1.15,rug_puller:2.05,dumping_whale:1.41,reorg_ghost:1.39,cage_hand:1.5};
+for(const id of Object.keys(DANGER))MONS[id].dg=DANGER[id];
 /* SKILL TEXT: generated from the ops so it always matches the real numbers */
 const TGT_P={foe:'one enemy',front:'the front enemy',foes:'all enemies',self:'self',allyLow:'the weakest ally',allies:'the whole team',low:'the weakest enemy',back:'the back enemy',rand2:'2 random enemies',rand3:'random enemies with 3 shots'};
 const TGT_E={pfront:'the front pet',pback:'the back pet',pfoes:'your whole team',low:'the weakest pet',strong:'the strongest pet',support:'the support pet',lowDef:'the lowest Armor pet',full:'the pet with the most Rage',noPoison:'a pet without Poison',nearStatic:'the pet with the most Static',shielded:'a shielded pet',rand:'a random pet',rand3:'random pets',self:'self',allyLow:'its weakest ally',allies:'its whole group'};
 const stTxt=(k,v,t)=>{
   const s=STS[k],pct=(k==='atkUp'||k==='defUp'||k==='spdUp'||k==='slow'||k==='defDown'||k==='critUp'||k==='vamp')?(k==='slow'||k==='defDown'?'-':'+')+v+'% ':'';
+  if(k==='spikes')return s.n+' until the end of next turn';
   return pct+s.n+(t&&t<9?` for ${t} action${t>1?'s':''}`:'');
 };
 function describeOps(ops,tgtLabel){
@@ -300,6 +306,8 @@ function describeOps(ops,tgtLabel){
       case 'static':out.push(`Add ${o[1]} Static`);break;
       case 'push':out.push('Push the target to the end of the turn order');break;
       case 'cleanse':out.push('Remove negative effects');break;
+      case 'break':out.push('Interrupts a charging enemy');break;
+      case 'guard':out.push(`Takes ${Math.round((1-TUNE.brace)*100)}% less from hits this turn and gains 20 Rage, but does not attack`);break;
       case 'taunt':out.push(`Taunt for ${o[1]} action${o[1]>1?'s':''}`);break;
       case 'extra':out.push('Allies who have not acted go next');break;
       case 'coin':out.push(`${o[1]*100}% more coins this battle`);break;

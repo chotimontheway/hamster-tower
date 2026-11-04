@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS inventory (
 );
 -- Food counts by id, added after the first release
 ALTER TABLE inventory ADD COLUMN IF NOT EXISTS foods jsonb NOT NULL DEFAULT '{}';
+-- Saved teams, added with the upper tower rules
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS presets jsonb NOT NULL DEFAULT '[]';
 
 -- The battle a player is in. Turns are counted here so each one can only be played once. The battle itself travels as a signed ticket
 CREATE TABLE IF NOT EXISTS fights (
