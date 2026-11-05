@@ -300,21 +300,36 @@ function parseWheel(j){
   const m=j&&j.schemaVersion===1?j.measurement:null;
   if(!m||m.freshness!=='online'||m.provenance!=='hardware'||m.coreStatus==='COUNTER_FAULT')return {known:false};
   const rpm=(+m.rpmMilli||0)/1000,work=j.builder&&j.builder.status==='available'&&j.builder.queued?(+j.builder.queued.openRoundWorkUnits||0):0,running=rpm>=5||m.coreStatus==='ACTIVE';
-  return {known:true,running,awake:running||work>0,rpm:Math.round(rpm),mps:Math.round((+m.speedMmPerSecond||0)/100)/10,work};
+  const p=j.builder&&j.builder.status==='available'&&j.builder.projected;
+  return {known:true,running,awake:running||work>0,rpm:Math.round(rpm),mps:Math.round((+m.speedMmPerSecond||0)/100)/10,work,total:p?+p.cumulativeWork:null,at:Date.parse(m.observedAt)/1000};
+}
+const BLOCKS_URL='https://api.squeekchain.com/v1/measurement/blocks';
+const readTimeout=()=>window.AbortSignal&&AbortSignal.timeout?{signal:AbortSignal.timeout(6000)}:{};
+function parseBlocks(j){
+  if(!j||j.status!=='available'||j.provenance!=='hardware'||!j.anchor||!j.roundSchedule)return null;
+  return {anchor:{work:+j.anchor.cumulativeWork,end:+j.roundSchedule.genesisTimestamp+(+j.anchor.settledThroughRound)*(+j.roundSchedule.roundDurationSeconds)},blocks:(j.blocks||[]).filter(b=>b.completingAt).map(b=>({at:Date.parse(b.completingAt)/1000,th:+b.workThreshold}))};
+}
+/* the Arena's clock takes every reading of the wheel. The passages that finished each block say exactly when he ran, so they are only read when there is something to read */
+async function readRun(wheel){
+  const c=arenaChain();
+  if(!c||!G||G.top<ARENA.unlock)return;
+  const r=UI.run||(UI.run={});
+  r.known=!!wheel.known;
+  if(!wheel.known)return;
+  const need=wheel.running||(wheel.total!==null&&wheel.total>(c.work||0));
+  const b=need?await fetch(BLOCKS_URL,readTimeout()).then(x=>x.ok?x.json():null).then(parseBlocks,()=>null):null;
+  arenaRead({running:wheel.running,at:wheel.at,total:wheel.total,anchor:b&&b.anchor,blocks:b?b.blocks:[]},{work:c.work||0,end:c.end||0,from:c.from||0,last:c.last||0},r);
 }
 async function loadLive(){
   UI.liveAt=Date.now();
   const [wheel,bonus]=await Promise.all([
-    fetch(STATUS_URL,window.AbortSignal&&AbortSignal.timeout?{signal:AbortSignal.timeout(6000)}:{}).then(r=>r.ok?r.json():null).then(parseWheel,()=>({known:false})),
+    fetch(STATUS_URL,readTimeout()).then(r=>r.ok?r.json():null).then(parseWheel,()=>({known:false})),
     api('/api/live').catch(()=>null)
   ]);
   UI.live=wheel;UI.bonus=bonus;
+  await readRun(wheel);
   applyLive();
-  if(UI.arenaShown!==undefined&&UI.arenaShown!==arenaOpenNow()){
-    const el=$('#arena-card');
-    if(el&&!el.contains(document.activeElement))el.outerHTML=arenaCard();
-    else if(UI.view==='arena'&&!UI.sheet&&!BT&&!SP)render();
-  }
+  arenaTick();
 }
 /* DAILY CHALLENGE */
 const triesText=n=>n+(n===1?' try':' tries');
@@ -481,7 +496,7 @@ const artU=s=>s.side==='p'||s.pet?'pet_'+s.ref:artOf(s.ref);
 async function enterBattle(node,opts){
   opts=opts||{};
   /* practice runs on this device and counts for nothing. A real battle is played on the server */
-  const r=opts.sandbox?startBattle(G,node,FLOORS,opts):opts.daily?await api('/api/daily/start',{}):opts.arena?await api('/api/arena/start',{floor:opts.arena}):await api('/api/fight/start',{floor:node.floor});
+  const r=opts.sandbox?startBattle(G,node,FLOORS,opts):opts.daily?await api('/api/daily/start',{}):opts.arena?await api('/api/arena/start',{floor:opts.arena,run:arenaClaim()}):await api('/api/fight/start',{floor:node.floor});
   const minMs=r.minMs||0;
   BT={B:r.B,node:r.node||node,sandbox:!!opts.sandbox,daily:!!opts.daily,arena:!!opts.arena,holder:r.holder||null,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token:r.token||null,turns:0,minMs,nextAt:Date.now()+minMs,sending:null,end:null};
   UI.view='battle';UI.sheet=null;
@@ -1176,11 +1191,35 @@ function arenaTags(n){
   return t.join('');
 }
 const arenaChest=f=>{const p=arenaPrize(f);return p?CHESTS[p.chest].n:null;};
-/* the Arena is open while the real hamster runs. The server decides by the chain, the page only shows it. Testers can fight while it is closed, to see it work */
+/* the Arena opens 5 minutes after he starts and closes 5 minutes after he stops. Only the page can see the wheel, so the clock runs here. The server checks against the chain. Testers can fight while it is closed, to see it work */
 const arenaGateMine=()=>UI.arena&&UI.arena.me&&UI.arena.me.gate;
-const arenaKnown=()=>!!((UI.bonus&&UI.bonus.arena)||arenaGateMine());
-function arenaOpenNow(){const a=UI.bonus&&UI.bonus.arena,b=arenaGateMine();return Math.max(a?a.until:0,b?b.until:0)>Date.now()/1000;}
+/* whichever answer from the server has the newest round */
+function arenaChain(){const a=UI.bonus&&UI.bonus.arena,b=arenaGateMine();if(!a||!b)return a||b||null;return (b.end||0)>=(a.end||0)?b:a;}
+const arenaKnown=()=>!!arenaChain();
+const arenaTime=()=>Date.now()/1000+(UI.skew||0);
+function arenaNow(){
+  const r=UI.run,c=arenaChain();
+  if(r&&r.known&&r.from&&c)return arenaState(r,arenaTime());
+  return {s:c&&c.until>arenaTime()?'open':'rest',left:0,plain:true};
+}
+const arenaOpenNow=()=>{const s=arenaNow().s;return s==='open'||s==='closing';};
 const arenaCanFight=()=>arenaOpenNow()||!!(arenaGateMine()&&arenaGateMine().test);
+/* what the page tells the server when it starts a fight in the first minutes of a run */
+function arenaClaim(){const r=UI.run;return r&&r.known&&r.from?{from:Math.floor(r.from),at:Math.floor(arenaTime())}:undefined;}
+const clockText=sec=>{const n=Math.max(0,Math.ceil(sec));return Math.floor(n/60)+':'+String(n%60).padStart(2,'0');};
+/* once a second: the clocks count down, and when the state changes what depends on it is drawn again */
+function arenaTick(){
+  if(document.hidden||!G||G.top<ARENA.unlock||BT||SP)return;
+  const a=arenaNow();
+  if(a.s!==UI.arenaShown&&UI.arenaShown!==undefined&&!UI.sheet){
+    const el=$('#arena-card');
+    if(el&&!el.contains(document.activeElement))el.outerHTML=arenaCard();
+    if(UI.view==='arena'||(UI.view==='ranks'&&UI.rankTab==='arena'))render();
+    UI.arenaShown=a.s;
+  }
+  const t=clockText(a.left);
+  document.querySelectorAll('[data-ar-left]').forEach(el=>{if(el.textContent!==t)el.textContent=t;});
+}
 /* when he tends to run, from his last two weeks of rounds, in the player's own time */
 function usualRun(){
   const now=Date.now()/1000,list=FLOORS.filter(n=>Number(n.t)>now-14*86400);if(list.length<12)return '';
@@ -1193,28 +1232,36 @@ function usualRun(){
 }
 function arenaLine(){
   if(G.top<ARENA.unlock)return `Clear floor ${ARENA.unlock} of the tower to enter. Every pet fights at the same level here.`;
-  const a=UI.arena&&UI.arena.me,gate=arenaKnown()?(arenaOpenNow()?'Open while Squeektoshi runs.':'Closed while Squeektoshi rests.'):'';
+  const a=UI.arena&&UI.arena.me,n=arenaNow();
+  const gate=!arenaKnown()?'':n.s==='wait'?`Opens in <b class="num" data-ar-left>${clockText(n.left)}</b>.`:n.s==='closing'?`Closes in <b class="num" data-ar-left>${clockText(n.left)}</b>.`:n.s==='open'?'Open while Squeektoshi runs.':'Closed while Squeektoshi rests.';
   if(!a)return `Beat the team on a floor and take its place. ${gate}`;
   return `${a.floor?`You hold floor ${a.floor} of ${ARENA.floors}.`:'Beat a team to take its floor.'} ${gate} ${a.left?`${triesText(a.left)} left today.`:`New tries in ${timeToReset()}.`}`;
 }
 function arenaCard(){
-  const off=G.top<ARENA.unlock,on=arenaOpenNow();UI.arenaShown=on;
+  const off=G.top<ARENA.unlock,on=arenaOpenNow();UI.arenaShown=arenaNow().s;
   return `<section class="sweep arena${on&&!off?' on':''}" id="arena-card">${pic('arena','')}<div><h2>Arena Tower</h2><p>${arenaLine()}</p></div><button class="btn${off||on?'':' ghost'}" data-act="nav" data-v="arena"${off?' disabled':''}>${off?'Locked':on?'Climb':'View'}</button></section>`;
 }
 /* what the wheel means for the Arena, at the top of its screen */
 function arenaGateBox(){
-  const on=arenaOpenNow(),l=UI.live,g=arenaGateMine(),watch='<a class="btn ghost sm" href="https://sepolia.squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a>';
-  if(on)return `<section class="sweep live run ar-gate" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2>The Arena is open</h2><p>${l&&l.running?'Squeektoshi is running right now.':'Squeektoshi ran just now.'} It closes about ${ARENA.openMin} minutes after he stops, so use your tries while he runs.</p></div>${watch}</section>`;
-  return `<section class="sweep live ar-gate"><span class="live-wheel">${WHEEL_ICON}</span><div><h2>The Arena is closed</h2><p>${l&&l.running?'Squeektoshi is running right now, so it opens once this run is on the chain, about 15 minutes after he started.':`Squeektoshi is resting. It opens about 15 minutes after he starts running. ${usualRun()}`}${g&&g.test?' This test account can fight anyway.':''}</p></div>${watch}</section>`;
+  const n=arenaNow(),g=arenaGateMine(),test=g&&g.test?' This test account can fight anyway.':'',wait=ARENA.waitMin,watch='<a class="btn ghost sm" href="https://sepolia.squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a>';
+  const clock=(word)=>`<p class="ar-clock" role="timer"><small>${word}</small><b class="num" data-ar-left>${clockText(n.left)}</b></p>`;
+  const box=(cls,title,inner)=>`<section class="sweep live ${cls} ar-gate" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2>${title}</h2>${inner}</div>${watch}</section>`;
+  if(n.s==='wait')return box('run ar-soon','The Arena opens soon',clock('Opens in')+`<p>Squeektoshi started running. Get your team ready.${test}</p>`);
+  if(n.s==='closing')return box('ar-end','The Arena is closing',clock('Closes in')+`<p>Squeektoshi stopped running. If he runs again it stays open, and a fight you begin in time can be finished.</p>`);
+  if(n.s==='open')return box('run','The Arena is open',`<p>${n.plain?'Squeektoshi ran just now.':'Squeektoshi is running right now.'} It closes ${wait} minutes after he stops, so use your tries while he runs.</p>`);
+  return box('','The Arena is closed',`<p>Squeektoshi is resting. It opens ${wait} minutes after he starts running, and this screen counts down. ${usualRun()}${test}</p>`);
 }
 async function loadArena(){
   UI.arenaAt=Date.now();
   try{
-    const me=await api('/api/arena/me');
+    const asked=Date.now()/1000,me=await api('/api/arena/me');
+    /* the player's clock may be off, the countdown goes by the server's */
+    if(me.gate&&me.gate.now)UI.skew=me.gate.now-(asked+Date.now()/1000)/2;
     UI.arena={me};
     const el=$('#arena-card');
     if(el&&!el.contains(document.activeElement))el.outerHTML=arenaCard();
     if(UI.view==='arena'&&!UI.sheet&&!BT)render();
+    if(Date.now()-UI.liveAt>5000)loadLive();
     if(me.unclaimed)await claimArena();
   }catch(e){if(e&&e.status===401)fail(e);}
 }
@@ -1238,7 +1285,7 @@ function sheetArenaPrizes(s){
 function sheetArena(){
   return `<h2>How the Arena works</h2>
     <ol class="how">
-      <li>The Arena is open while the real hamster runs, from about 15 minutes after he starts until about ${ARENA.openMin} minutes after he stops. A fight you began in time can still be finished.</li>
+      <li>The Arena is open while the real hamster runs. It opens ${ARENA.waitMin} minutes after he starts and closes ${ARENA.waitMin} minutes after he stops, and the screen counts both down. A fight you began in time can still be finished.</li>
       <li>Every floor is held by one team. A floor nobody has taken yet is held by a Bot team that gets stronger the higher it stands.</li>
       <li>You can attack any of the next ${ARENA.reach} floors above you. Win and you trade places with that team.</li>
       <li>You have ${ARENA.tries} tries a day. A try is used when you play the first turn, so looking at a team costs nothing.</li>
@@ -1275,7 +1322,7 @@ function viewArena(){
   if(G.top<ARENA.unlock)return head()+`<div class="empty-note">Clear floor ${ARENA.unlock} of the tower to enter the Arena.</div>`;
   const a=UI.arena&&UI.arena.me;
   if(!a)return head()+'<div class="empty-note">Loading the Arena...</div>';
-  UI.arenaShown=arenaOpenNow();
+  UI.arenaShown=arenaNow().s;
   const mine=teamPower(arenaG(G)),now=arenaChest(a.floor),next=ARENA_PRIZES.slice().reverse().find(p=>p.from>a.floor);
   const tx=a.dev?'This is a dev wallet. It can fight here to test, but it never takes a floor.':a.floor?`${now?`Today this floor pays a ${now}, if you fight today.${PLAYER&&!PLAYER.wallet?' Only wallets are paid.':''}`:'This floor does not pay a chest yet.'}${next?` Reach floor ${next.from} for a ${CHESTS[next.chest].n}.`:' You are at the top.'}`:`Win a fight to take a floor. Reach floor ${ARENA_PRIZES[ARENA_PRIZES.length-1].from} for your first daily chest.`;
   const my=`<section class="my-rank"><div class="my-no num"><small>Your floor</small><b>${a.floor||'None'}</b></div><div class="my-tx"><b class="num">${a.floor?`Floor ${a.floor} of ${ARENA.floors}`:'Outside the tower'}</b><p>${tx}</p></div><button class="btn ghost" data-act="rank-arena">Board</button></section>`;
@@ -1798,7 +1845,7 @@ function codexRules(){
       <li>Melee attacks and many enemy attacks only reach the front row. The first pet in your team is the front row.</li>
       <li>Cleared floors stay cleared. Losing costs nothing, so replay as much as you like. A replay pays ${pct(TUNE.replayCoin)} of the coins with no boss bonus, and has a ${pct(TUNE.replayChest)} chance of a chest one tier lower. Leaving a battle after its first turn counts as a loss, and every new try has new luck.</li>
       <li>For ${LIVE_MINUTES} minutes after Squeektoshi runs, battle wins pay ${Math.round(LIVE_BONUS*100)}% more coins. A run counts once it is on the chain, and the Tower screen shows what he is doing right now.</li>
-      <li>Arena Tower is open while the real hamster runs. Beat the team on a floor to take its place, and the floor you hold when the day ends pays a chest to a wallet that fought that day.</li>
+      <li>Arena Tower opens ${ARENA.waitMin} minutes after the real hamster starts running and closes ${ARENA.waitMin} minutes after he stops, with a countdown on its screen. Beat the team on a floor to take its place, and the floor you hold when the day ends pays a chest to a wallet that fought that day.</li>
       <li>The Daily Challenge gives everyone the same team and the same fight, made from the hamster's biggest run of the day before. You get ${DAILY_TRIES} tries, fewest rounds wins, your first win of the day pays a chest, and the top 10 wallets get chests and bags when the day ends.</li>
       <li>Chests go to your inventory and open from there. Use Sweep once per day to collect rewards from cleared floors.</li>
       <li>Coins buy food and blind bags in the Shop. Feed a hamster to 100% and run the wheel to earn levels.</li>
@@ -2075,7 +2122,8 @@ async function boot(){
   }catch(e){
     $('#app').innerHTML=`<main class="login gut"><div class="login-box"><h1>The tower could not open</h1><p>${esc((e&&e.message)||'Something went wrong')}</p><div class="btns"><button class="btn" data-act="reload">Try again</button></div></div></main>`;
   }
-  setInterval(()=>{if(document.hidden||BT||SP)return;if(UI.view==='tower')towerData();else if(UI.view==='arena'&&Date.now()-UI.liveAt>12000)loadLive();},15000);
+  setInterval(()=>{if(document.hidden||BT||SP)return;if(UI.view==='tower')towerData();else if((UI.view==='arena'||(UI.view==='ranks'&&UI.rankTab==='arena'))&&Date.now()-UI.liveAt>12000)loadLive();},15000);
+  setInterval(arenaTick,1000);
   /* new floors: read through the CDN, so a crowd of players never reaches the database */
   setInterval(async()=>{
     if(BT||SP||!G)return;

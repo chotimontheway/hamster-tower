@@ -115,6 +115,13 @@ small{font-size:12px;color:var(--muted)}
 .live.run .live-wheel{color:var(--green)}
 .live.run .live-wheel svg{animation:live-spin var(--spin,1.6s) linear infinite}
 .live.run h2{color:var(--mint)}
+/* the Arena's countdown */
+.ar-clock{display:flex;align-items:baseline;gap:8px;margin:2px 0 3px}
+.ar-clock small{font-size:13px;color:var(--muted)}
+.ar-clock b{font:800 34px/1 var(--f-d);color:var(--gold);font-variant-numeric:tabular-nums}
+.ar-gate.ar-end{border-color:var(--gold)}
+.ar-gate.ar-end h2{color:var(--gold2)}
+.sweep p [data-ar-left]{color:var(--gold);font-variant-numeric:tabular-nums}
 @keyframes live-spin{to{transform:rotate(360deg)}}
 .daily{border-color:var(--gold)}
 .rk-open{padding:0;text-align:inherit;text-decoration:underline dotted;text-underline-offset:3px}

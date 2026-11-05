@@ -527,9 +527,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const { arenaGate } = require('../lib/live');
   const liveNow = await fetch(BASE + '/api/live').then(r => r.json());
   check('the page can see when the Arena is open', typeof liveNow.arena.open === 'boolean' && liveNow.arena.until > 0, liveNow.arena);
-  const gf = [{ t: 1000 }, { t: '5000' }], gEnd = 5000 + 600 + E.ARENA.openMin * 60;
+  const gf = [{ t: 1000, gap: 0, work: 100 }, { t: 4400, gap: 4, work: 60 }, { t: '5000', gap: 0, work: 300 }], gEnd = 5000 + 600 + E.ARENA.holdMin * 60;
   check('it stays open until a while after the newest round', arenaGate(gf, 5300).open === true && arenaGate(gf, gEnd - 1).open === true && arenaGate(gf, gEnd).open === false && arenaGate(gf, gEnd).until === gEnd, arenaGate(gf, gEnd));
   check('with no rounds it is closed', arenaGate([], 1).open === false);
+  check('rounds in a row are one run, which began as late in the first as its work allows', arenaGate(gf, 5300).from === Math.round(5000 - 60 / E.ARENA.pace) && arenaGate(gf, 5300).end === 5600, arenaGate(gf, 5300));
+  check('after a round in a row he is taken to have stopped when its work was done', arenaGate(gf, 5300).last === Math.round(5000 + 300 / E.ARENA.pace), arenaGate(gf, 5300));
+  check('after a round alone there is no telling, so it is the end of the round', arenaGate([{ t: 1000, gap: 0, work: 100 }, { t: 5000, gap: 6, work: 60 }], 5300).last === 5600);
+  check('the page is told what the server has read', typeof liveNow.arena.work === 'number' && liveNow.arena.end > 0 && liveNow.arena.from > 0, liveNow.arena);
   if (process.env.ARENA_CLOSED_BASE && process.env.DATABASE_URL) {
     const shut = client(process.env.ARENA_CLOSED_BASE);await shut('/api/auth/guest', {});
     const shutId = (await shut('/api/me')).body.player.id;await require('../lib/db').q('UPDATE players SET top = 20, top_at = now() WHERE id = $1', [shutId]);
@@ -537,6 +541,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     check('the page is told it is closed', shutMe.status === 200 && shutMe.body.gate.open === false && shutMe.body.gate.test === false, shutMe.body.gate);
     check('while the hamster rests nobody can start a fight', shutGo.status === 409 && /closed/i.test(JSON.stringify(shutGo.body)), shutGo.body);
     check('the board and your own place can still be read', (await fetch(process.env.ARENA_CLOSED_BASE + '/api/arena')).status === 200 && shutMe.body.targets.length === 3);
+    check('the page gets the time to count down by', Math.abs(shutMe.body.gate.now - Date.now() / 1000) < 30, shutMe.body.gate);
+    const nowS = Date.now() / 1000, waitS = E.ARENA.waitMin * 60, db = require('../lib/db');
+    const soon = await shut('/api/arena/start', { floor: 1, run: { from: Math.floor(nowS - 60), at: Math.floor(nowS) } });
+    check('a page cannot start a fight before the wait is over', soon.status === 409, soon.body);
+    const early = await shut('/api/arena/start', { floor: 1, run: { from: Math.floor(nowS - waitS), at: Math.floor(nowS) } });
+    check('in the first minutes of a run the page is believed, before the chain can know', early.status === 200 && !!early.body.token, early.body);
+    await db.q("INSERT INTO arena_log (id, attacker, floor, won, moved, early) VALUES ($1, $2, 1, false, false, 1000)", ['lie' + shutId, shutId]);
+    const caught = await shut('/api/arena/start', { floor: 1, run: { from: Math.floor(nowS - waitS), at: Math.floor(nowS) } });
+    check('a player the chain has caught lying waits for the chain from then on', caught.status === 409, caught.body);
+    await db.q('DELETE FROM arena_log WHERE id = $1', ['lie' + shutId]);
   }
   if (process.env.ARENA_OPEN_BASE && process.env.DATABASE_URL) {
     const wide = client(process.env.ARENA_OPEN_BASE);await wide('/api/auth/guest', {});

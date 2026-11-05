@@ -250,6 +250,100 @@ console.log('Arena Tower');
     check('and uses it when someone is hurt', E.foePick(b4, u) === 1, healer.id);
   }
 }
+console.log('\nThe Arena opens and closes with the real wheel');
+{
+  const wait = E.ARENA.waitMin * 60, T = 1800000000, c0 = { work: 1000, end: T - 3600, from: T - 4000 };
+  const read = (m, t, running, total, blocks, c) => E.arenaRead({ running, at: t, total, anchor: { work: 1000, end: T - 300 }, blocks: blocks || [] }, c || c0, m);
+  const at = (m, t) => E.arenaState(m, t);
+  let m = {};
+  read(m, T - 60, false, 1000);
+  check('a resting wheel means closed, with no countdown', at(m, T - 60).s === 'rest' && at(m, T - 60).left === 0, at(m, T - 60));
+  read(m, T + 10, true, 1010);
+  check('he starts: it counts down the wait', at(m, T + 10).s === 'wait' && Math.abs(at(m, T + 10).left - (wait - 10)) < 3, at(m, T + 10));
+  check('the countdown runs on its own between readings', Math.abs(at(m, T + 40).left - (wait - 40)) < 3, at(m, T + 40));
+  read(m, T + wait - 2, true, 1000 + wait);
+  check('a moment before the wait is over it is still counting', at(m, T + wait - 5).s === 'wait', [at(m, T + wait - 5), m.from]);
+  check('then it opens, with no countdown while he runs', at(m, T + wait + 3).s === 'open' && at(m, T + wait + 3).left === 0, at(m, T + wait + 3));
+  const stop = T + 600;
+  read(m, stop, true, 1600);
+  read(m, stop + 15, false, 1600);
+  check('a pause under half a minute is still running', at(m, stop + 20).s === 'open', at(m, stop + 20));
+  check('a longer one starts the countdown to close', at(m, stop + 60).s === 'closing' && Math.abs(at(m, stop + 60).left - (wait - 60)) < 3, at(m, stop + 60));
+  read(m, stop + 120, true, 1610);
+  check('if he runs again it stays open, with no new wait', at(m, stop + 121).s === 'open', at(m, stop + 121));
+  const end = stop + 200;
+  read(m, end, true, 1690);
+  read(m, end + 60, false, 1690);
+  check('after he stops it stays open for the wait', at(m, end + wait - 2).s === 'closing', at(m, end + wait - 2));
+  check('and closes when that is over', at(m, end + wait + 1).s === 'rest', at(m, end + wait + 1));
+  read(m, end + wait + 300, false, 1690);
+  check('and stays closed', at(m, end + wait + 301).s === 'rest', m);
+  read(m, end + wait + 600, true, 1700);
+  check('a new run after a long rest counts down again', at(m, end + wait + 601).s === 'wait' && Math.abs(at(m, end + wait + 601).left - (wait - 11)) < 4, at(m, end + wait + 601));
+  /* a few turns of the wheel */
+  let b = {};
+  read(b, T - 10, false, 1000);
+  read(b, T + 3, true, 1005);
+  check('the first turns of the wheel count down', at(b, T + 4).s === 'wait', at(b, T + 4));
+  read(b, T + 40, false, 1006);
+  check('but a stop right after is not a run', at(b, T + 45).s === 'rest', at(b, T + 45));
+  /* a page that arrives late */
+  const blocks = [{ at: T + 11, th: 1011 }, { at: T + 22, th: 1022 }, { at: T + 120, th: 1120 }];
+  let c = {};
+  read(c, T + 130, true, 1130, blocks);
+  check('a page that arrives during the wait knows when he began, from the blocks', c.from > T - 3 && c.from < T + 3 && at(c, T + 131).s === 'wait', c.from - T);
+  let d = {};
+  read(d, T + 400, true, 1400, [{ at: T + 11, th: 1011 }, { at: T + 390, th: 1390 }]);
+  check('after the wait it finds it open', at(d, T + 401).s === 'open', [d.from - T, at(d, T + 401)]);
+  let e = {};
+  read(e, T + 400, false, 1400, [{ at: T + 11, th: 1011 }, { at: T + 340, th: 1340 }]);
+  check('and from the last block when he stopped', e.last > T + 390 && at(e, T + 431).s === 'closing', [e.last - T, at(e, T + 431)]);
+  let f = {};
+  read(f, T + 1000, true, 1240, [{ at: T + 11, th: 1011 }, { at: T + 120, th: 1120 }, { at: T + 900, th: 1131 }, { at: T + 910, th: 1142 }]);
+  check('a quiet spell inside the blocks means a new run began after it', f.from > T + 880 && f.from < T + 900 && at(f, T + 1001).s === 'wait', [f.from - T, at(f, T + 1001)]);
+  /* only the chain to go by */
+  const c1 = { work: 1500, end: T + 600, from: T };
+  let g = {};
+  E.arenaRead({ running: false, at: T + 700, total: 1500, anchor: null, blocks: [] }, c1, g);
+  check('a new page with only the chain never counts down to a run that may be over', at(g, T + 701).s === 'closing', at(g, T + 701));
+  let h = {};
+  E.arenaRead({ running: true, at: T + 800, total: 1560, anchor: { work: 1500, end: T + 600 }, blocks: [{ at: T + 700, th: 1510 }] }, c1, h);
+  check('a new page in the middle of a run finds it open', h.from === T && at(h, T + 801).s === 'open', [h.from - T, at(h, T + 801)]);
+  let i = {};
+  E.arenaRead({ running: false, at: T + 2000, total: 1500, anchor: null, blocks: [] }, c1, i);
+  check('a new page long after the last round finds it closed', at(i, T + 2001).s === 'rest', at(i, T + 2001));
+  let g2 = {};
+  E.arenaRead({ running: false, at: T + 700, total: 1500, anchor: null, blocks: [] }, { work: 1500, end: T + 1200, from: T + 300, last: T + 650 }, g2);
+  check('it dates his stop by the work in the last round, not the end of the round', g2.last === T + 650, g2.last - T);
+  /* the server catching up must not reopen what a page saw end */
+  let j = {};
+  read(j, T + 100, true, 1100);
+  read(j, T + 400, true, 1400);
+  read(j, T + 420, false, 1410);
+  E.arenaRead({ running: false, at: T + 720, total: 1410, anchor: null, blocks: [] }, { work: 1410, end: T + 600, from: T }, j);
+  check('rounds reaching the server later do not reopen it', at(j, T + 721).s === 'rest', [at(j, T + 721), j.last - T]);
+  /* but what happened while a page was not looking counts */
+  let k = {};
+  read(k, T + 100, false, 1000);
+  E.arenaRead({ running: false, at: T + 2000, total: 1500, anchor: null, blocks: [] }, { work: 1500, end: T + 1900, from: T + 1400 }, k);
+  check('a page coming back sees a run it missed', at(k, T + 2001).s === 'closing' && k.last === T + 1900, [at(k, T + 2001), k.last - T]);
+  /* a reading that stops coming */
+  let l = {};
+  read(l, T + 10, true, 1010);
+  read(l, T + 400, true, 1400);
+  check('with no new reading for a minute he no longer counts as running', at(l, T + 500).s === 'closing', at(l, T + 500));
+  /* what the server takes from a page */
+  const { claimFits, fitsChain } = require('../lib/live');
+  const now = 90000, fl = [{ t: 1000 }, { t: 2000 }], good = { from: now - wait, at: now };
+  check('a fresh claim of a run that began the wait ago is believed', claimFits(good, fl, now - 200, now));
+  check('a claim a little early still fits the clock of the page', claimFits({ from: now - wait + 20, at: now }, fl, now - 200, now));
+  check('but not one well before the wait is over', !claimFits({ from: now - wait + 60, at: now }, fl, now - 200, now));
+  check('an old reading is not believed', !claimFits({ from: now - wait, at: now - 200 }, fl, now - 200, now));
+  for (const bad of [null, undefined, {}, 'x', { from: 'x', at: now }, { from: 0, at: now }, { from: -5, at: now }, { from: now - wait }, { at: now }, { from: Infinity, at: now }]) check('nonsense is refused: ' + JSON.stringify(bad), !claimFits(bad, fl, now - 200, now));
+  check('a time the chain has already settled as empty is refused', !claimFits(good, fl, now + 600, now));
+  check('a time the chain has work for is fine', claimFits({ from: 2100, at: now }, fl, now, now));
+  check('a run the chain cannot judge yet is fine, and one it has judged empty is not', fitsChain(now, fl, now) && !fitsChain(5000, fl, now));
+}
 console.log('\nThe contracts the rounds are read from');
 {
   const cores = require('../lib/config').cores();

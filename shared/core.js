@@ -556,7 +556,47 @@ function dailyG(ch){
   return {team:ch.team,owned,items:[],battles:0,top:1e9};
 }
 /* ARENA TOWER: a second tower where every floor is held by a team. Beat a floor above you and you trade places. Every pet fights at one level, stars and gear still count. The server keeps who stands where, see lib/arena.js */
-const ARENA={floors:100,tries:5,reach:3,lv:30,unlock:5,lowPow:900,topPow:5000,openMin:30};
+/* It opens waitMin minutes after he starts running and closes waitMin minutes after he stops. Only a page can read the wheel, so the clock runs there. The chain is the server's own check: it stays open holdMin minutes after the newest round with work ends, because the next round reaches the chain that late. pace is his wheel passages a second while running, measured on 3,817 passages */
+const ARENA={floors:100,tries:5,reach:3,lv:30,unlock:5,lowPow:900,topPow:5000,waitMin:5,holdMin:15,pace:1.03};
+/* what a page learns from one reading of the wheel. w: running, at (seconds), total (work so far on this contract), anchor ({work,end}, what is settled), blocks ({at,th}, the passage that finished each unsettled block). c: what the server has read from the chain: work, then end, from and last of the newest run. m: this page's memory of the run, updated here */
+function arenaRead(w,c,m){
+  const wait=ARENA.waitMin*60,pace=ARENA.pace,known=w.total!==null&&w.total!==undefined;
+  /* what is settled can reach further than what the server has read so far */
+  const ax=w.anchor&&w.anchor.work>c.work?w.anchor:null,next=ax&&c.end&&ax.end-c.end===600,start=ax?ax.end-(ax.work-c.work)/pace:0;
+  const chain=ax?{work:ax.work,end:ax.end,last:next?c.end+(ax.work-c.work)/pace:ax.end,from:next?c.from:start}:c;
+  /* every moment the wheel is known to have turned, oldest first */
+  const pts=[];
+  if(m.last)pts.push({at:m.last,th:m.seen||0});
+  const cp=chain.end&&(!m.last||chain.work>(m.seen||0))?{at:chain.end,th:chain.work}:null;
+  if(cp)pts.push(cp);
+  for(const b of w.blocks||[])if(!pts.length||b.th>pts[pts.length-1].th)pts.push(b);
+  if(w.running&&known&&(!pts.length||w.at>pts[pts.length-1].at))pts.push({at:w.at,th:Math.max(w.total,pts.length?pts[pts.length-1].th:0)});
+  /* work with no time on it: since the last reading it is dated by his pace, on a new page it only counts if it is too much to be a few turns */
+  const top=pts.length?pts[pts.length-1]:null,grew=known&&!w.running&&!(w.blocks||[]).length&&w.total>(top?top.th:0)&&(m.at?true:w.total-chain.work>30);
+  if(grew)pts.push({at:m.at&&top?Math.min(w.at,top.at+(w.total-top.th)/pace):w.at,th:w.total});
+  if(!pts.length){m.at=w.at;return m;}
+  /* the latest stretch with no quiet spell as long as the wait inside it */
+  let i=pts.length-1;while(i>0&&pts[i].at-pts[i-1].at<=wait)i--;
+  const head=pts[i],tail=pts[pts.length-1],gone=i>0?pts[i-1].th:chain.work,first=head.at-Math.max(0,head.th-gone-1)/pace;
+  m.from=i>0?first:(m.from||(head.th===chain.work&&chain.from)||first);
+  const fresh=!m.at;
+  /* the work in the last round dates his stop only when nothing came after it. It cannot say when in the round he ran, so whether a new run began above goes by the end of the round */
+  m.last=Math.max(m.last||0,w.running?w.at:tail===cp?Math.min(w.at,chain.last||chain.end):Math.min(w.at,tail.at+(known?Math.max(0,w.total-tail.th):0)/pace));
+  /* a page that just arrived and only has the chain to go by cannot say when he began, so it never counts down to a run that may be long over */
+  if(fresh&&!w.running&&!(w.blocks||[]).length&&m.last-m.from>=30)m.from=Math.min(m.from,m.last-wait);
+  m.at=w.at;m.running=!!w.running;
+  m.seen=Math.max(m.seen||0,known?w.total:0,chain.work);
+  return m;
+}
+/* what the Arena is doing at this second. A pause under half a minute is still running, and a few turns of the wheel are not a run */
+function arenaState(m,now){
+  const wait=ARENA.waitMin*60;
+  if(!m.from)return {s:'rest',left:0};
+  const running=(!!m.running&&now-m.at<60)||now-m.last<30,last=m.running&&now-m.at<60?Math.max(now,m.last):m.last;
+  if(now-last>=wait||(!running&&last-m.from<30))return {s:'rest',left:0};
+  if(now-m.from<wait)return {s:'wait',left:m.from+wait-now};
+  return running?{s:'open',left:0}:{s:'closing',left:last+wait-now};
+}
 /* one chest for the floor held when a day ends, if the player fought that day */
 const ARENA_PRIZES=[{from:100,chest:4},{from:85,chest:3},{from:60,chest:2},{from:30,chest:1},{from:10,chest:0}];
 const arenaPrize=f=>ARENA_PRIZES.find(p=>f>=p.from)||null;

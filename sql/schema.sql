@@ -140,3 +140,5 @@ CREATE TABLE IF NOT EXISTS arena_log (
 );
 CREATE INDEX IF NOT EXISTS arena_log_attacker ON arena_log (attacker, at DESC);
 CREATE INDEX IF NOT EXISTS arena_log_defender ON arena_log (defender, at DESC);
+-- When a page said the run began, for a fight the chain could not confirm yet. Checked once the chain has caught up
+ALTER TABLE arena_log ADD COLUMN IF NOT EXISTS early bigint;
