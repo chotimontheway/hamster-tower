@@ -61,8 +61,9 @@ small{font-size:12px;color:var(--muted)}
 /* TOP AND BOTTOM BARS */
 .top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--panel);border-bottom:3px solid var(--ink)}
 .top-in{display:flex;align-items:center;gap:10px;min-height:56px;padding-block:6px}
-.brand{display:flex;align-items:center;gap:6px;font:800 20px/1 var(--f-d);color:var(--cream);min-height:44px}
+.brand{display:flex;flex:none;align-items:center;justify-content:center;gap:6px;font:800 20px/1 var(--f-d);color:var(--cream);min-height:44px;min-width:44px}
 .brand img{width:38px;height:38px}
+.top-coin{margin-left:auto}
 .pill{display:inline-flex;align-items:center;gap:5px;background:var(--night);border:2px solid var(--line);border-radius:99px;padding:3px 10px;font-weight:600;font-size:13.5px;white-space:nowrap}
 .trial-btn{min-height:36px;padding:2px 10px;border:2px solid var(--line2);border-radius:9px;font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
 .trial-btn:hover{color:var(--cream);border-color:var(--gold)}
@@ -110,7 +111,7 @@ small{font-size:12px;color:var(--muted)}
 .sweep p{font-size:13px;color:var(--muted)}
 /* the real wheel turns at the real speed while the hamster runs */
 .live-wheel{display:flex;width:58px;height:58px;align-items:center;justify-content:center;color:var(--line2)}
-.live.run,.live.bonus{border-color:var(--green)}
+.live.run,.live.bonus,.sweep.arena.on{border-color:var(--green)}
 .live.run .live-wheel{color:var(--green)}
 .live.run .live-wheel svg{animation:live-spin var(--spin,1.6s) linear infinite}
 .live.run h2{color:var(--mint)}
@@ -243,7 +244,18 @@ small{font-size:12px;color:var(--muted)}
 .nrg i{background:var(--gold)}
 .unit.full .nrg{outline:2px solid var(--gold2)}
 .sprite{position:relative;width:var(--sz);height:var(--sz);flex:none}
-.sprite>img{width:100%;height:100%}
+.rig{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;will-change:transform}
+.rigbox{position:relative;display:block;width:100%;aspect-ratio:1/1}
+.dome{position:absolute;inset:-14%;border-radius:50%;pointer-events:none;background:radial-gradient(circle,rgba(120,200,255,0) 58%,rgba(130,205,255,.2) 80%,rgba(200,240,255,.62) 100%);box-shadow:0 0 0 2px rgba(205,242,255,.7),0 0 18px rgba(120,200,255,.45);animation:domeIn .3s cubic-bezier(.2,1.5,.4,1),domeGlow 2.4s ease-in-out infinite}
+@keyframes domeIn{from{transform:scale(.4);opacity:0}}
+@keyframes domeGlow{50%{box-shadow:0 0 0 2px rgba(205,242,255,.45),0 0 26px rgba(120,200,255,.7)}}
+.dizzy{position:absolute;left:50%;top:6%;width:50%;height:14%;transform:translateX(-50%);pointer-events:none}
+.dizzy b{position:absolute;left:50%;top:50%;width:13px;height:13px;margin:-6px;background:#FFE14D;clip-path:polygon(50% 0,62% 36%,100% 38%,70% 60%,80% 98%,50% 76%,20% 98%,30% 60%,0 38%,38% 36%);animation:orbit 1s linear infinite}
+.dizzy b:nth-child(2){animation-delay:-.33s}.dizzy b:nth-child(3){animation-delay:-.66s}
+@keyframes orbit{0%{transform:translate(0,-6px) scale(.8)}25%{transform:translate(170%,0) scale(1)}50%{transform:translate(0,6px) scale(1.15)}75%{transform:translate(-170%,0) scale(1)}100%{transform:translate(0,-6px) scale(.8)}}
+.sprite.spk::after{content:"";position:absolute;inset:-6%;border-radius:50%;pointer-events:none;border:3px dashed #C99BFF;box-shadow:0 0 14px #A06BFFAA;animation:spin 3s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.dome,.dizzy b,.sprite.spk::after{animation:none}}
 .mark{position:absolute;right:-2px;top:0;width:24px;height:24px;border-radius:50%}
 .mark:not(:empty){background:rgba(21,18,43,.88);box-shadow:0 0 0 2px var(--gold2);padding:2px}
 .unit.active .sprite::before{content:"";position:absolute;left:6%;right:6%;bottom:2%;height:18%;border-radius:50%;background:rgba(255,201,77,.55);box-shadow:0 0 16px 4px rgba(255,201,77,.5)}
@@ -274,7 +286,7 @@ small{font-size:12px;color:var(--muted)}
 .ultb img{width:66px;height:66px}
 .ultb strong{font:800 clamp(24px,4.6vw,40px)/1 var(--f-d);color:var(--gold)}
 @keyframes ultin{from{transform:scaleY(.2);opacity:0}}
-.flash{position:absolute;inset:0;z-index:3;pointer-events:none;opacity:0}
+.flash{position:absolute;inset:-60px -100vw;z-index:3;pointer-events:none;opacity:0}
 .ticker{background:#191632;border-bottom:3px solid var(--ink);padding-block:5px;min-height:34px}
 .ticker-in{max-width:1160px;margin-inline:auto;font-size:13px;color:var(--soft);display:flex;flex-direction:column}
 .ticker span:last-child{color:var(--cream);font-weight:600}
@@ -469,9 +481,10 @@ small{font-size:12px;color:var(--muted)}
 .intent img{display:inline-block;width:15px;height:15px;vertical-align:-3px;margin-left:3px;border-radius:50%;background:var(--cream)}
 .ordn{position:absolute;left:-2px;top:0;min-width:20px;height:20px;padding:0 3px;border-radius:10px;background:var(--inkart);color:var(--cream);font:700 12px/16px var(--f-d);text-align:center;border:2px solid var(--cream)}
 .ordn:empty{display:none}
-.aim{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;gap:1px}
+.aim{position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);display:flex;gap:1px}
 .aim img{width:24px;height:24px;border-radius:50%;background:var(--cream);border:2px solid var(--inkart)}
 .aim img.f{border-color:var(--gold);outline:2px solid var(--gold)}
+@media (max-width:560px){.aim img{width:18px;height:18px;border-width:1.5px}}
 .unit.e.acting .uname{background:var(--pink);color:var(--inkart)}
 .unit.p{cursor:pointer}
 .bt-order .ord{cursor:help}
@@ -773,6 +786,7 @@ html.busy .btn:not(:disabled),html.busy .sk:not(:disabled){cursor:progress}
   .login-box .btn{min-height:44px;font-size:15px;padding:4px 12px}
 }
 @media (max-width:370px){.brand{display:none}}
+@media (max-width:345px){.top-in{gap:3px}}
 @media (max-width:375px){.plan-row .pl-head{width:78px}}
 @media (max-width:345px){.plan-row .pl-head{width:auto}.plan-row .pl-head span{display:none}.sk{padding-inline:2px}}
 @media (max-width:380px){.top-floor{display:none}.top-in{gap:5px}.top .snd-btn{width:34px;height:34px}.top .trial-btn{padding-inline:7px}}
@@ -829,7 +843,7 @@ html.busy::after{content:"";position:fixed;inset:0 0 auto;height:3px;z-index:100
 
 /* HOVER: for a real mouse only, so a phone never keeps a stuck effect. Transform and opacity keep it cheap, and reduced motion turns the movement off below */
 .pcard,.item,.gslot,button.ftile,div.ftile,.pick-row,.bopt,.sk,.wrow,.sell-t,.chipb,.floor,.trial-btn,.who-addr,.who-out,.rk-copy,.x,.snd-btn,.brand,.pl-head,.nav button,.chest-card,.shop-card,.pod,.rank li,.en-card,.rv,.slot,.set-card,.rx,.mini-pet,.res-chip,.ord,.mv span,.chip,.sweep,.btn{transition:transform .15s ease,background-color .15s ease,border-color .15s ease,box-shadow .15s ease,color .15s ease,filter .15s ease}
-.pcard img.pp,.item .i-pic>img,.gslot img,.ftile .i-pic>img,.pick-row .i-pic>img,.slot-pic img,.chest-card>img,.shop-card>img,.wrow img,.pl-head img,.floor .f-en img,.sweep>img,.pod>img,.mini-pet img,.en-pic img,.rv img,.rv .i-pic img,.brand img,.unit .sprite>img{transition:transform .18s cubic-bezier(.3,1.6,.6,1),filter .15s ease}
+.pcard img.pp,.item .i-pic>img,.gslot img,.ftile .i-pic>img,.pick-row .i-pic>img,.slot-pic img,.slot-pic .rig,.pstage .rig,.chest-card>img,.shop-card>img,.wrow img,.pl-head img,.floor .f-en img,.sweep>img,.pod>img,.mini-pet img,.en-pic img,.rv img,.rv .i-pic img,.brand img,.unit .sprite>.rig{transition:transform .18s cubic-bezier(.3,1.6,.6,1),filter .15s ease}
 .btn:active:not(:disabled){transition-duration:.04s}
 @media (hover:hover) and (pointer:fine){
   /* bottom tabs: a raised pill, a line under the name, and each picture moves its own way */
@@ -857,7 +871,7 @@ html.busy::after{content:"";position:fixed;inset:0 0 auto;height:3px;z-index:100
   .btn:not(.ghost):not(:disabled):hover::after{animation:btn-shine .6s ease}
   /* cards that open something rise and glow in their rarity color */
   .pcard:hover,.item:hover,.gslot:hover,button.ftile:hover:not(:disabled),div.ftile:hover,.pick-row:hover,.bopt:hover:not(:disabled),.wrow:hover{transform:translateY(-3px);box-shadow:0 8px 18px rgba(0,0,0,.42),0 0 0 2px var(--rc,var(--gold2))}
-  .pcard:hover img.pp,.item:hover .i-pic>img:first-child,.gslot:hover img,button.ftile:hover:not(:disabled) .i-pic>img,div.ftile:hover .i-pic>img,.pick-row:hover .i-pic>img,.slot-pic:hover img,.wrow:hover img{transform:scale(1.12) rotate(-3deg)}
+  .pcard:hover img.pp,.item:hover .i-pic>img:first-child,.gslot:hover img,button.ftile:hover:not(:disabled) .i-pic>img,div.ftile:hover .i-pic>img,.pick-row:hover .i-pic>img,.slot-pic:hover img,.slot-pic:hover .rig,.pcard:hover .pstage .rig,.wrow:hover img{transform:scale(1.12) rotate(-3deg)}
   /* floors slide toward the mouse and their monsters look up */
   .floor:hover{transform:translateX(4px);box-shadow:inset 4px 0 0 var(--gold2)}
   .floor.locked:hover{transform:translateX(2px);box-shadow:inset 3px 0 0 var(--line2)}
@@ -871,9 +885,9 @@ html.busy::after{content:"";position:fixed;inset:0 0 auto;height:3px;z-index:100
   .sk.ult:hover:not(:disabled){box-shadow:0 0 14px var(--gold2)}
   .pl-head:hover{background:var(--raise)}
   .pl-head:hover img{transform:scale(1.12)}
-  .unit:not(.dead):hover .sprite>img{transform:scale(1.06)}
-  .unit.e:not(.dead):hover .sprite>img{filter:drop-shadow(0 0 7px #F0506E)}
-  .unit.p:not(.dead):hover .sprite>img{filter:drop-shadow(0 0 7px var(--gold2))}
+  .unit:not(.dead):hover .sprite>.rig{transform:scale(1.06)}
+  .unit.e:not(.dead):hover .sprite>.rig{filter:drop-shadow(0 0 7px #F0506E)}
+  .unit.p:not(.dead):hover .sprite>.rig{filter:drop-shadow(0 0 7px var(--gold2))}
   .ord:hover{transform:scale(1.16)}
   .chip:hover{transform:scale(1.07);filter:brightness(1.15)}
   /* cards that only show information get a lighter lift */
@@ -904,3 +918,39 @@ html.busy::after{content:"";position:fixed;inset:0 0 auto;height:3px;z-index:100
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
+/* Arena Tower */
+.ar-foe,.ar-mine{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;background:var(--card);border:3px solid var(--line);border-radius:14px;padding:10px 14px}
+.ar-mine{grid-template-columns:minmax(0,1fr) auto}
+.ar-foe.real{border-color:var(--gold2)}
+.ar-no{display:flex;flex-direction:column;align-items:center;line-height:1;min-width:48px}
+.ar-no small{font-size:11.5px;color:var(--muted)}
+.ar-no b{font:800 32px/1 var(--f-d);color:var(--gold)}
+.ar-tx{display:flex;flex-direction:column;gap:5px;min-width:0}
+.ar-tx>small{font-size:12.5px;color:var(--soft)}
+.ar-who{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
+.ar-who>b{font:700 16.5px/1.15 var(--f-d)}
+.ar-team{display:flex;flex-wrap:wrap;gap:5px}
+.ar-pet{position:relative;display:block;width:50px;height:50px;border-radius:9px;padding:2px}
+.ar-pet img{width:100%;height:100%;display:block}
+.ar-pet i{position:absolute;right:1px;bottom:1px;min-width:15px;height:15px;padding:0 3px;border-radius:8px;background:var(--inkart);color:var(--gold2);font:700 10.5px/15px var(--f-b,inherit);font-style:normal;text-align:center}
+.ar-team.ar-small{flex-wrap:nowrap;gap:2px}
+.ar-team.ar-small .ar-pet{width:30px;height:30px;border-radius:6px;padding:1px}
+.ar-team.ar-small .ar-pet i{display:none}
+.ar-foe,.ar-mine{transition:transform .18s,box-shadow .18s,border-color .18s}
+.ar-pet img{transition:transform .18s cubic-bezier(.3,1.6,.6,1)}
+@media (hover:hover) and (pointer:fine){
+  .ar-foe:hover{transform:translateY(-2px);box-shadow:0 7px 15px rgba(0,0,0,.35);border-color:var(--gold2)}
+  .ar-pet:hover img{transform:scale(1.14)}
+}
+.ar-log li{grid-template-columns:minmax(0,1fr) auto}
+.ar-log li.good{border-color:#2E7D5B}
+.ar-log li.bad{border-color:#8A2238}
+.ar-log small{color:var(--muted);white-space:nowrap}
+@media (max-width:560px){
+  .ar-foe{grid-template-columns:auto minmax(0,1fr);padding:9px 11px}
+  .ar-foe .btn{grid-column:1/-1;width:100%}
+  .ar-mine{grid-template-columns:minmax(0,1fr)}
+  .ar-mine .btn{width:100%}
+  .ar-pet{width:44px;height:44px}
+}
+@media (max-width:760px),(max-height:500px),(pointer:coarse){.rk-open{display:inline-flex;align-items:center;min-height:30px}}

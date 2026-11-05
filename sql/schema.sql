@@ -106,3 +106,37 @@ CREATE TABLE IF NOT EXISTS battle_log (
   at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS battle_log_at ON battle_log (at);
+
+-- Arena Tower: a row only for a floor a real player holds, every other floor has its own team from the game
+CREATE TABLE IF NOT EXISTS arena_floors (
+  floor     int PRIMARY KEY,
+  player_id bigint NOT NULL UNIQUE REFERENCES players (id) ON DELETE CASCADE,
+  since     timestamptz NOT NULL DEFAULT now()
+);
+-- Today's tries and the team that defends
+CREATE TABLE IF NOT EXISTS arena_players (
+  player_id bigint PRIMARY KEY REFERENCES players (id) ON DELETE CASCADE,
+  day       text NOT NULL DEFAULT '',
+  tries     int NOT NULL DEFAULT 0,
+  def       jsonb
+) WITH (fillfactor = 70);
+-- The floor each player who fought that day stands on when the day ends. Rows are deleted after 30 days
+CREATE TABLE IF NOT EXISTS arena_days (
+  day       text NOT NULL,
+  player_id bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  floor     int NOT NULL,
+  PRIMARY KEY (day, player_id)
+);
+-- Recent fights, shown to both sides. Rows are deleted after 30 days
+CREATE TABLE IF NOT EXISTS arena_log (
+  id        text PRIMARY KEY,
+  at        timestamptz NOT NULL DEFAULT now(),
+  attacker  bigint NOT NULL,
+  defender  bigint,
+  floor     int NOT NULL,
+  won       boolean NOT NULL,
+  moved     boolean NOT NULL,
+  fell      int
+);
+CREATE INDEX IF NOT EXISTS arena_log_attacker ON arena_log (attacker, at DESC);
+CREATE INDEX IF NOT EXISTS arena_log_defender ON arena_log (defender, at DESC);

@@ -114,7 +114,7 @@ function makeEnemy(m,idx,node){
 }
 function roundOrder(B){
   const list=B.units.filter(u=>u.alive);
-  list.forEach(u=>{u.tie=rnd(B.rng);u.key=effSpd(u)+(u.side==='e'&&MONS[u.ref].first?1000:0)-(u.charging&&B.hf>=TUNE.hardFrom?1e5:0);});
+  list.forEach(u=>{u.tie=rnd(B.rng);u.key=effSpd(u)+(u.side==='e'&&!u.pet&&MONS[u.ref].first?1000:0)-(u.charging&&B.hf>=TUNE.hardFrom?1e5:0);});
   list.sort((a,b)=>b.key-a.key||a.tie-b.tie);
   return list.map(u=>u.id);
 }
@@ -128,7 +128,7 @@ function newRound(B,ev){
 }
 function startBattle(G,node,floors,opts){
   opts=opts||{};
-  const B={node:{floor:node.floor,round:node.round,work:node.work,type:node.type,boss:node.boss,hash:node.hash},hf:node.daily?0:node.floor,h:node.daily?0:hardAt(node.floor),units:[],round:0,queue:[],actIndex:0,over:null,rule:node.rule?RULES.find(r=>r.id===node.rule):null,rng:seedOf(opts.seed||(node.hash+':b:'+G.battles+':'+(opts.salt||''))),coinBonus:0,noReactP:false,reactP:0,dmgP:0,drowsyP:.3,first:node.floor>G.top,sandbox:!!opts.sandbox};
+  const B={node:{floor:node.floor,round:node.round,work:node.work,type:node.type,boss:node.boss,hash:node.hash},hf:node.daily||node.arena?0:node.floor,h:node.daily||node.arena?0:hardAt(node.floor),units:[],round:0,queue:[],actIndex:0,over:null,rule:node.rule?RULES.find(r=>r.id===node.rule):null,rng:seedOf(opts.seed||(node.hash+':b:'+G.battles+':'+(opts.salt||''))),coinBonus:0,noReactP:false,reactP:0,dmgP:0,drowsyP:.3,first:node.floor>G.top,sandbox:!!opts.sandbox};
   const res=teamResonance(G.team);
   let hpBonus=0,critBonus=0,dmgBonus=0;
   for(const r of res){
@@ -144,15 +144,35 @@ function startBattle(G,node,floors,opts){
     const healT=res.find(r=>r.trio&&r.heal);if(healT)st.mods.heal*=1+healT.heal;
     B.units.push({id:'p'+i,side:'p',ref:id,n:PETS[id].n,el:PETS[id].el,role:PETS[id].role,boss:false,hp,hpMax:hp,atk:st.atk,def:st.def,spd:st.spd,crit:st.crit+critBonus,nrg:st.mods.nrgStart||0,cds:{},st:{},mark:null,alive:true,turn:0,phase:0,hitLast:false,charging:null,mods:st.mods});
   });
-  node.enemies.forEach((mid,i)=>B.units.push(makeEnemy(MONS[mid],i,node)));
+  if(opts.foe)addFoeTeam(B,opts.foe);
+  else node.enemies.forEach((mid,i)=>B.units.push(makeEnemy(MONS[mid],i,node)));
   for(const u of B.units){
     if(u.mods.startShield)u.st.shield={v:u.def*u.mods.startShield,t:2};
     if(u.mods.startDodge)u.st.dodge={v:1,t:3};
   }
-  const cheer=alive(B,'p').filter(u=>u.mods.teamAtk).length;
-  if(cheer)alive(B,'p').forEach(u=>{u.st.atkUp={v:12*cheer,t:3};});
+  for(const side of ['p','e']){
+    const cheer=alive(B,side).filter(u=>u.mods.teamAtk).length;
+    if(cheer)alive(B,side).forEach(u=>{u.st.atkUp={v:12*cheer,t:3};});
+  }
   const ev=[];newRound(B,ev);
   return {B,ev,init:ev[ev.length-1]};
+}
+/* the Arena: another team stands on the enemy side, with its own team bonuses */
+function addFoeTeam(B,F){
+  const res=teamResonance(F.team);
+  let hpBonus=0,critBonus=0;B.dmgE=0;B.reactE=0;B.noReactE=false;
+  for(const r of res){
+    if(r.id==='same'){B.noReactE=true;B.dmgE+=.15;}
+    if(r.id==='diff')B.reactE+=.2;
+    if(r.id==='std')hpBonus+=.1;
+    if(r.trio){if(r.dmg)B.dmgE+=r.dmg;if(r.hp)hpBonus+=r.hp;if(r.crit)critBonus+=r.crit;}
+  }
+  F.team.forEach((id,i)=>{
+    const st=petStats(F,id),hp=Math.round(st.hp*(1+hpBonus)),o=F.owned[id],look={};
+    const healT=res.find(r=>r.trio&&r.heal);if(healT)st.mods.heal*=1+healT.heal;
+    for(const s of Object.keys(o.gear)){const it=itemByUid(F,o.gear[s]);if(it)look[s]=it.set;}
+    B.units.push({id:'e'+i,side:'e',pet:true,look,star:o.star,ref:id,n:PETS[id].n,el:PETS[id].el,role:PETS[id].role,boss:false,hp,hpMax:hp,atk:st.atk,def:st.def,spd:st.spd,crit:st.crit+critBonus,nrg:st.mods.nrgStart||0,cds:{},st:{},mark:null,alive:true,turn:0,phase:0,hitLast:false,charging:null,hist:[hp,hp],mods:st.mods});
+  });
 }
 function checkOver(B){
   if(B.over)return;
@@ -174,7 +194,7 @@ function hurt(B,a,t,val,ev,info){
   let d=Math.max(1,Math.round(val));const raw=d;
   if(!(info&&info.pierceShield)&&t.st.shield){const ab=Math.min(t.st.shield.v,d);t.st.shield.v-=ab;d-=ab;if(t.st.shield.v<=0)delete t.st.shield;}
   t.hp-=d;t.hitLast=true;
-  if(t.side==='p')gainNrg(B,t,7);
+  if(t.side==='p'||t.pet)gainNrg(B,t,7);
   ev.push(Object.assign({t:'dmg',to:t.id,val:raw,lost:d,hp:Math.max(0,t.hp),sh:t.st.shield?Math.round(t.st.shield.v):0},info||{}));
   if(t.hp<=0)kill(B,t,ev);
   return d;
@@ -192,7 +212,7 @@ function calcHit(B,a,t,pow,el,o,meta){
   if(t.st.freeze&&t.st.freeze.v){v*=1.3;t.st.freeze.v=0;}
   if(B.rule&&B.rule.el&&B.rule.el===el)v*=1.3;
   if(B.rule&&B.rule.lead&&B.actIndex<=3)v*=1+B.rule.lead;
-  if(a.side==='p')v*=1+B.dmgP;
+  v*=1+(a.side==='p'?B.dmgP:(B.dmgE||0));
   if(o.low)v*=1+(1-hpPct(a));
   if(a.mods.low&&hpPct(t)<.35)v*=1+a.mods.low;
   if(meta&&meta.ult)v*=1+a.mods.ult;
@@ -204,7 +224,7 @@ function singleHit(B,a,t,pow,o,el,ev,meta){
   if(!a.mods.sure){
     if(a.st.blind&&!(meta&&meta.aoe)){delete a.st.blind;ev.push({t:'miss',to:t.id,why:'Miss'});return;}
     if(t.st.dodge){t.st.dodge.v--;if(t.st.dodge.v<=0)delete t.st.dodge;ev.push({t:'miss',to:t.id,why:'Dodge'});return;}
-    if(t.side==='e'&&MONS[t.ref].fly&&rnd(B.rng)<.15){ev.push({t:'miss',to:t.id,why:'Dodge'});return;}
+    if(t.side==='e'&&!t.pet&&MONS[t.ref].fly&&rnd(B.rng)<.15){ev.push({t:'miss',to:t.id,why:'Dodge'});return;}
     if(B.rule&&B.rule.fog&&!(meta&&meta.aoe)&&rnd(B.rng)<B.rule.fog){ev.push({t:'miss',to:t.id,why:'Miss'});return;}
   }
   let critRate=a.crit+(a.st.critUp?a.st.critUp.v:0)+(B.rule&&B.rule.crit?B.rule.crit:0);
@@ -214,8 +234,8 @@ function singleHit(B,a,t,pow,o,el,ev,meta){
   let react=null,boost=1;
   if(el){
     if(t.mark&&t.mark!==el){
-      if(a.side==='p'&&B.noReactP)t.mark=el;
-      else{react=REACT[rk(el,t.mark)];const pair=[t.mark,el];t.mark=null;boost=1+a.mods.react+(a.side==='p'?B.reactP:0)+(B.rule&&B.rule.react?B.rule.react:0);if(o.reactX)boost*=o.reactX;val*=1+(react.dmg-1)*boost;react=Object.assign({pair},react);}
+      if(a.side==='p'?B.noReactP:B.noReactE)t.mark=el;
+      else{react=REACT[rk(el,t.mark)];const pair=[t.mark,el];t.mark=null;boost=1+a.mods.react+(a.side==='p'?B.reactP:(B.reactE||0))+(B.rule&&B.rule.react?B.rule.react:0);if(o.reactX)boost*=o.reactX;val*=1+(react.dmg-1)*boost;react=Object.assign({pair},react);}
     }else t.mark=el;
   }
   const lost=hurt(B,a,t,val,ev,{crit,eff:r.eff,el,by:a.id});
@@ -239,7 +259,7 @@ function reactFx(B,a,t,r,boost,val,ev){
     case 'burn':if(t.alive)putSt(B,a,t,'burn',r.v*boost,3,ev);break;
     case 'push':pushUnit(B,t,r.v*boost,ev);break;
     case 'bleed':if(t.alive)putSt(B,a,t,'bleed',r.v*boost,3,ev);break;
-    case 'nrg':alive(B,a.side).forEach(x=>{if(x.side==='p')x.nrg=Math.min(100,x.nrg+Math.round(r.v*boost));});ev.push({t:'nrg',side:a.side});break;
+    case 'nrg':alive(B,a.side).forEach(x=>{if(x.side==='p'||x.pet)x.nrg=Math.min(100,x.nrg+Math.round(r.v*boost));});ev.push({t:'nrg',side:a.side});break;
     case 'stun':if(t.alive)putSt(B,a,t,'stun',1,1,ev);break;
   }
 }
@@ -309,7 +329,7 @@ function runOps(B,u,ops,targets,el,ev,meta){
       case 'healTeam':alive(B,u.side).forEach(t=>healU(B,u,t,atkOf(u)*op[1],ev));break;
       case 'healLowOp':{const l=alive(B,u.side);if(l.length)healU(B,u,minBy(l,hpPct),atkOf(u)*op[1],ev);break;}
       case 'revive':B.units.filter(t=>t.side===u.side&&!t.alive).slice(0,1).forEach(t=>{t.alive=true;t.hp=Math.round(t.hpMax*op[1]);ev.push({t:'revive',who:t.id,name:'Revived',hp:t.hp});});break;
-      case 'swap':{const e=B.units.filter(x=>x.side==='e'&&x.alive);if(e.length>1){const i=B.units.indexOf(e[0]),j=B.units.indexOf(e[1]);B.units[i]=e[1];B.units[j]=e[0];ev.push({t:'swap'});}break;}
+      case 'swap':{const e=B.units.filter(x=>x.side===other(u.side)&&x.alive);if(e.length>1){const i=B.units.indexOf(e[0]),j=B.units.indexOf(e[1]);B.units[i]=e[1];B.units[j]=e[0];ev.push({t:'swap'});}break;}
       case 'stunChance':targets.forEach(t=>{if(t.alive&&(sureOn(B,t,'stun',meta)||rnd(B.rng)<op[1]))putSt(B,u,t,'stun',1,1,ev);});break;
       case 'break':targets.forEach(t=>{if(t.alive)stopCharge(t,ev);});break;
       case 'guard':ev.push({t:'st',to:u.id,key:'braced'});break;
@@ -337,7 +357,7 @@ function beginTurn(B,u,ev){
   if(u.st.bomb){u.st.bomb.t--;if(u.st.bomb.t<=0){const v=u.st.bomb.v;delete u.st.bomb;ev.push({t:'boom',who:u.id,to:u.id});hurt(B,null,u,v,ev,{key:'bomb'});if(!u.alive||B.over)return false;}}
   if(u.st.regen)healU(B,u,u,u.st.regen.v,ev,true);
   if(u.mods.turnHeal)healU(B,u,u,u.hpMax*u.mods.turnHeal,ev,true);
-  if(u.side==='e'&&MONS[u.ref].regen)healU(B,u,u,u.atk*MONS[u.ref].regen,ev,true);
+  if(u.side==='e'&&!u.pet&&MONS[u.ref].regen)healU(B,u,u,u.atk*MONS[u.ref].regen,ev,true);
   for(const k of ['stun','freeze','sleep']){
     if(u.st[k]){
       const name=STS[k].n;
@@ -379,7 +399,7 @@ function whenOK(B,u,m,turn){
   }
 }
 function pickMove(B,u,turn){const ms=MONS[u.ref].moves;if(u.st.silence)return ms[ms.length-1];return ms.find(m=>whenOK(B,u,m,turn))||ms[ms.length-1];}
-function peekMove(B,u){if(MONS[u.ref].hidden)return null;if(u.charging)return u.charging;return pickMove(B,u,u.turn+1);}
+function peekMove(B,u){if(u.pet)return PETS[u.ref].skills[foePick(B,u)];if(MONS[u.ref].hidden)return null;if(u.charging)return u.charging;return pickMove(B,u,u.turn+1);}
 function aiTargets(B,u,code){
   const foes=alive(B,other(u.side)),allies=alive(B,u.side);
   const tn=foes.find(x=>x.st.taunt),one=t=>[tn||t];
@@ -394,7 +414,7 @@ function aiTargets(B,u,code){
     default:return one(foes[0]);
   }
 }
-const previewAim=(B,u,m)=>(m.tgt==='rand'||m.tgt==='rand3'||m.tgt==='self'||m.tgt==='allyLow'||m.tgt==='allies')?null:aiTargets(B,u,m.tgt).map(x=>x.id);
+const previewAim=(B,u,m)=>u.pet?(['self','allies','allyLow','rand2','rand3'].includes(m.tgt)?null:pTargets(B,u,m,foeTarget(B,u)).map(x=>x.id)):(m.tgt==='rand'||m.tgt==='rand3'||m.tgt==='self'||m.tgt==='allyLow'||m.tgt==='allies')?null:aiTargets(B,u,m.tgt).map(x=>x.id);
 function autoFx(m,el){
   if(m.fx)return m.fx;
   const has=k=>m.ops.some(o=>o[0]===k),aoe=m.tgt==='pfoes';
@@ -404,7 +424,28 @@ function autoFx(m,el){
   if(m.tgt==='self')return 'mBuff';
   return aoe?'mCurseAll':'mCurse';
 }
+/* a pet on the enemy side. Nothing here is random, so the next move it shows is the move it makes. Its Rage skill when full, its skill when that helps right now, otherwise a basic attack */
+function foePick(B,u){
+  const list=PETS[u.ref].skills,al=alive(B,u.side);
+  const helps=sk=>{
+    const has=k=>sk.ops.some(o=>o[0]===k);
+    if(has('dmg')||has('wheelHit')||has('execute')||has('bomb')||has('static')||has('stunChance'))return true;
+    if(has('revive'))return B.units.some(x=>x.side===u.side&&!x.alive);
+    if(has('heal')||has('healTeam')||has('healLowOp'))return al.some(x=>hpPct(x)<.7);
+    if(has('shield'))return sk.tgt==='self'?!u.st.shield:al.some(x=>!x.st.shield);
+    if(has('cleanse'))return al.some(x=>Object.keys(x.st).some(k=>STS[k]&&STS[k].bad));
+    return true;
+  };
+  for(const i of [2,1])if(canUseU(u,list[i])&&helps(list[i]))return i;
+  return 0;
+}
+/* a mark that sets off a reaction first, then the element it beats, then whoever is weakest */
+function foeTarget(B,u){
+  const worth=t=>(t.mark&&t.mark!==u.el&&!B.noReactE?3:0)+matchup(u.el,t.el)*2+(1-hpPct(t))*2;
+  return maxBy(alive(B,other(u.side)),worth).id;
+}
 function enemyAct(B,u,ev){
+  if(u.pet)return petAct(B,u,{i:foePick(B,u),target:foeTarget(B,u)},ev);
   phaseCheck(B,u,ev);if(B.over||!u.alive)return;
   let m=u.charging;
   if(!m){
@@ -419,12 +460,12 @@ function enemyAct(B,u,ev){
 const canUseU=(u,s)=>s.kind==='basic'||s.kind==='guard'||(!u.st.silence&&(s.kind==='ult'?u.nrg>=100:!(u.cds[s.n]>0)));
 function canPick(B,id,i){const u=uById(B,id);return !!u&&u.alive&&canUseU(u,PETS[u.ref].skills[i]);}
 function pTargets(B,u,sk,chosen){
-  const foes=alive(B,'e'),allies=alive(B,'p'),tn=foes.find(x=>x.st.taunt);
+  const foes=alive(B,other(u.side)),allies=alive(B,u.side),tn=foes.find(x=>x.st.taunt);
   switch(sk.tgt){
     case 'self':return [u];case 'allies':return allies;case 'allyLow':return [minBy(allies,hpPct)];case 'foes':return foes;
     case 'front':return [tn||foes[0]];case 'back':return [tn||foes[foes.length-1]];case 'low':return [tn||minBy(foes,hpPct)];
     case 'rand2':return [0,1].map(()=>pick(foes,B.rng));case 'rand3':return [0,1,2].map(()=>pick(foes,B.rng));
-    default:{const c=chosen&&uById(B,chosen);return [tn||(c&&c.alive&&c.side==='e'?c:foes[0])];}
+    default:{const c=chosen&&uById(B,chosen);return [tn||(c&&c.alive&&c.side!==u.side?c:foes[0])];}
   }
 }
 function previewPetAim(B,id,i,chosen){
@@ -514,6 +555,49 @@ function dailyG(ch){
   const owned={};ch.team.forEach(id=>{owned[id]=Object.assign(newPet(ch.lv),{star:ch.star});});
   return {team:ch.team,owned,items:[],battles:0,top:1e9};
 }
+/* ARENA TOWER: a second tower where every floor is held by a team. Beat a floor above you and you trade places. Every pet fights at one level, stars and gear still count. The server keeps who stands where, see lib/arena.js */
+const ARENA={floors:100,tries:5,reach:3,lv:30,unlock:5,lowPow:900,topPow:5000,openMin:30};
+/* one chest for the floor held when a day ends, if the player fought that day */
+const ARENA_PRIZES=[{from:100,chest:4},{from:85,chest:3},{from:60,chest:2},{from:30,chest:1},{from:10,chest:0}];
+const arenaPrize=f=>ARENA_PRIZES.find(p=>f>=p.from)||null;
+/* a team as it stands right now, apart from the save, so selling gear later changes nothing */
+function teamSnapshot(G){
+  return {team:G.team.map(id=>{const o=G.owned[id];return {id,star:o.star,branch:o.branch||null,gear:Object.keys(o.gear).map(s=>{const it=itemByUid(G,o.gear[s]);return it?[s,it.set,it.rar,it.plus]:null;}).filter(Boolean)};})};
+}
+function snapshotG(d){
+  const owned={},items=[];let uid=1;
+  for(const t of d.team){const gear={};for(const g of t.gear||[]){items.push({uid,set:g[1],slot:g[0],rar:g[2],plus:g[3]});gear[g[0]]=uid++;}owned[t.id]=Object.assign(newPet(t.lv||ARENA.lv),{star:t.star,branch:t.branch||null,gear});}
+  return {team:d.team.map(t=>t.id),owned,items,battles:0,top:1e9};
+}
+const arenaG=G=>snapshotG(teamSnapshot(G));
+const teamPower=F=>F.team.reduce((a,id)=>a+petPower(petStats(F,id)),0);
+/* floors nobody holds yet have a team of their own. It depends on the floor alone, so the page and the server always see the same one */
+const BOT_A=['Sleepy','Grumpy','Chubby','Lazy','Sneaky','Dizzy','Hungry','Fluffy','Tiny','Loud'],BOT_B=['Seed Hoarders','Wheel Gang','Cheek Crew','Sawdust Club','Tunnel Rats','Night Shift','Nap Squad','Carrot Thieves','Pellet Party','Cage Kings'];
+const BOT_SET={tank:'knight',support:'nurse',mage:'wizard',assassin:'hunter',ranger:'hunter',fighter:'miner'};
+const BOT_GEAR=[[0,'n',0],[2,'n',0],[4,'n',0],[4,'r',0],[4,'r',1],[4,'r',2],[4,'e',0],[4,'e',1],[4,'e',2],[4,'e',3],[4,'e',4],[4,'e',5],[4,'l',0],[4,'l',1],[4,'l',2],[4,'l',3],[4,'l',4],[4,'l',5]];
+const BOT_MEMO={};
+function arenaBot(f){
+  if(BOT_MEMO[f])return BOT_MEMO[f];
+  const s=seedOf('arena-bot:'+f),k=(f-1)/(ARENA.floors-1),want=ARENA.lowPow*Math.pow(ARENA.topPow/ARENA.lowPow,f/ARENA.floors),lv=Math.round(18+12*Math.min(1,f/18));
+  const rars=k<.15?['n']:k<.35?['n','r']:k<.6?['r','e']:k<.85?['r','e','l']:['e','l'];
+  const from=test=>{const a=PETS_LIST.filter(p=>rars.includes(p.rar)&&test(p));return a.length?a:PETS_LIST.filter(test);};
+  const front=pick(from(p=>p.role==='tank'||p.role==='fighter'),s);
+  const a=pick(from(p=>p.id!==front.id&&p.role!=='tank'),s);
+  const b=pick(from(p=>p.id!==front.id&&p.id!==a.id&&p.role!=='tank'&&(a.role!=='support'||p.role!=='support')),s);
+  let best=null;
+  for(let star=1;star<=5;star++)for(const [pieces,rar,plus] of BOT_GEAR){
+    const d={bot:true,name:BOT_A[f%10]+' '+BOT_B[Math.floor(f/10)%10],team:[front,a,b].map(p=>({id:p.id,star,lv,branch:null,gear:['weapon','armor','hat','charm'].slice(0,pieces).map(sl=>[sl,BOT_SET[p.role],rar,plus])}))};
+    const off=Math.abs(teamPower(snapshotG(d))-want);
+    if(!best||off<best.off)best={d,off};
+  }
+  return BOT_MEMO[f]=best.d;
+}
+function arenaNode(f){
+  const s=seedOf('arena-map:'+f),wx=RULES.filter(r=>r.id!=='clear');
+  return {floor:f,arena:true,round:0,work:450,blocks:43,type:'normal',boss:false,hash:'0xarena'+f,t:0,gap:0,enemies:[],rule:rnd(s)<.5?pick(wx,s).id:'clear',map:{t:Math.floor(rnd(s)*MAP_NAMES.length),tone:Math.floor(rnd(s)*TONE_NAMES.length)}};
+}
+/* the floors a player may attack */
+const arenaTargets=mine=>{const out=[];for(let f=mine+1;f<=Math.min(ARENA.floors,mine+ARENA.reach);f++)out.push(f);return out;};
 function grantPet(G,rar){
   const s=G.rs;let list=PETS_LIST.filter(p=>p.rar===rar);
   if(G.bags===1){const fresh=list.filter(p=>!G.owned[p.id]);if(fresh.length)list=fresh;}

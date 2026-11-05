@@ -23,7 +23,7 @@ async function signIn(account) {
 const refused = async c => {
   const before = (await c('/api/me')).body.state.coins;
   const out = [];
-  for (const body of [{ op: 'coins' }, { op: 'chests' }, { op: 'food' }, { op: 'pets' }, { op: 'sweep' }, { op: 'jump', n: 50 }, { op: 'wipe' }]) out.push((await c('/api/dev', body)).status);
+  for (const body of [{ op: 'coins' }, { op: 'chests' }, { op: 'food' }, { op: 'pets' }, { op: 'sweep' }, { op: 'jump', n: 50 }, { op: 'arena' }, { op: 'wipe' }]) out.push((await c('/api/dev', body)).status);
   const after = (await c('/api/me')).body.state;
   return out.every(s => s === 403) && after.coins === before && after.top === 0;
 };
@@ -51,6 +51,17 @@ const refused = async c => {
   check('the test wallet can jump floors', jumped.status === 200 && jumped.body.state.top === 20, jumped.body.state && jumped.body.state.top);
   const rankT = await t('/api/rank');
   check('the test wallet is told it is not ranked', rankT.body.rank === null && rankT.body.test === true, rankT.body);
+  /* a test wallet can reach any gear, so it fights in the Arena but never takes a floor from anyone */
+  const arT = await t('/api/arena/start', { floor: 1 });
+  let arB = arT.body.B, arTok = arT.body.token, arEnd = null;
+  while (!arB.over) {
+    await new Promise(r => setTimeout(r, arT.body.minMs + 30));
+    const plan = {};arB.units.filter(u => u.side === 'p' && u.alive).forEach(u => { plan[u.id] = { i: 0, target: null }; });
+    const r = await t('/api/fight/turn', { token: arTok, plan });arB = r.body.B;arTok = r.body.token;arEnd = r.body.arena;
+  }
+  const arMe = (await t('/api/arena/me')).body;
+  check('the test wallet can fight in the Arena but never takes a floor', arT.status === 200 && arEnd && arEnd.took === false && arMe.floor === 0 && arMe.dev === true, arMe);
+  check('its address is not on the Arena board', !(await (await fetch(BASE + '/api/arena')).text()).toLowerCase().includes(tester.address.toLowerCase()));
   const rival = await signIn(privateKeyToAccount(generatePrivateKey()));
   const st = await rival('/api/fight/start', { floor: 1 });
   let B = st.body.B, tok = st.body.token;
@@ -69,6 +80,8 @@ const refused = async c => {
     check('it keeps its score but gets no rank number', myDay.best.rounds === 7 && myDay.rank === null, myDay);
     const past = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10), rivalId = rivalMe.player.id;
     await q('INSERT INTO daily_scores (day, player_id, tries, rounds, hp, at) VALUES ($1, $2, 1, 2, 100, now()), ($1, $3, 1, 5, 50, now())', [past, meT.body.player.id, rivalId]);
+    await q('INSERT INTO arena_days (day, player_id, floor) VALUES ($1, $2, 100)', [past, meT.body.player.id]);
+    check('a test wallet gets no Arena chest either', (await t('/api/arena/claim', {})).body.prizes.length === 0 && (await t('/api/arena/me')).body.unclaimed === false);
     const testerPrize = await t('/api/daily/claim', {}), rivalPrize = await rival('/api/daily/claim', {});
     check('a test wallet gets no rewards, even with the best score', testerPrize.body.prizes.length === 0 && (await t('/api/daily/me')).body.unclaimed === false, testerPrize.body);
     check('and takes no place from the wallet below it, which ranks first', rivalPrize.body.prizes.length === 1 && rivalPrize.body.prizes[0].rank === 1 && rivalPrize.body.prizes[0].chest === 4, rivalPrize.body);

@@ -13,6 +13,8 @@ npm install
 npm run dev
 ```
 
+`npm run start` does the same. Run either from this folder, and use `$env:PORT=3100; npm run start` in PowerShell when port 3000 is taken.
+
 Open http://localhost:3000 and choose **Play as guest** or **Sign in with wallet**. The first start creates the database and reads the full round history from the chain, which takes about 20 seconds.
 
 Press Ctrl+C to stop. If you close the terminal instead, the database keeps running. The next `npm run dev` reuses it, or run `npm run db:stop`.
@@ -116,7 +118,7 @@ Existing saves keep their levels. Pets saved before food existed start with an e
 | `npm run loadtest` | Simulates many players, see the notes below |
 | `npm run sync` | Reads new rounds from the chain once |
 | `npm run top10` | Lists the wallets in line for the prize, skipping guests and test wallets, with what is needed to check each climb |
-| `npm run bake-art` | Regenerates the WebP art from `tools/art-web.js`, needs Chrome |
+| `npm run bake-art` | Regenerates the WebP art from `client/rig-art.js`, `client/rig-mon.js` and `tools/art-web.js`, needs Chrome. The next build gives the pictures a new address, so browsers fetch them again |
 | `npm run db:stop` | Stops the local database |
 
 ## How it stays fast with many players
@@ -148,13 +150,23 @@ Every sound is synthesized in `client/sound.js` with the Web Audio API, so there
 
 The music is three short pieces written as notes for the same synth: a music box waltz for the tower and menus, an upbeat march for battles, and a darker, faster one for bosses.
 
-The fonts are Baloo 2 and Be Vietnam Pro, served from `public/fonts` under the SIL Open Font License, whose text sits next to them. Nothing is loaded from another site. The one outside address the page calls is the public Squeekchain status API, for the wheel on the Tower screen.
+The fonts are Baloo 2 and Be Vietnam Pro, served from `public/fonts` under the SIL Open Font License, whose text sits next to them. Nothing is loaded from another site. The one outside address the page calls is the public Squeekchain status API, for the wheel on the Tower and Arena screens.
+
+## Arena Tower
+
+A second tower of 100 floors, separate from the climb and the SQK prize. Every floor is held by one team: a Bot team that gets stronger with height, or a real player's team once someone takes it.
+
+- **Open while the hamster runs.** A fight can only start while the real hamster is running and for 30 minutes after he stops, going by the rounds on the chain, so it opens about 15 minutes after he starts. A fight already begun may finish. Change `ARENA.openMin` in `shared/core.js` to widen it, or set `ARENA_WINDOW_MIN` on a server. Accounts with test powers can fight while it is closed.
+- **Taking a floor.** A player can attack any of the next 3 floors above them, with 5 tries a day. A try is used when the first turn is played. A win trades places with that team. Someone beaten by a player from outside the tower drops out of it. Places are checked again when a fight ends, so a floor that changed hands meanwhile stays as it is and the try comes back.
+- **Same level.** Every pet fights at level 30. Stars and gear still count.
+- **Defense.** A team fights by itself when attacked. Nothing it does is random except the luck of the battle, so the next move it shows is the move it makes. The team that first wins a floor defends it, and the player can change it. It is a copy, so selling gear later changes nothing.
+- **Rewards.** When a day ends, a wallet that fought that day gets one chest for the floor it stands on: Wood from floor 10, Bronze from 30, Silver from 60, Gold from 85, Diamond on floor 100. Guests can climb but are not paid. A dev wallet can fight but never takes a floor.
 
 ## Project layout
 
 ```
 shared/      Game content and rules, used by both browser and server
-client/      Interface, skill effects, maps, styles
+client/      Interface, skill effects, maps, styles, the drawn pets, monsters, bosses and gear and how they move
 lib/         Server: routes, players, chain sync, limits
 api/         The single Vercel function
 sql/         Database schema
@@ -168,14 +180,17 @@ public/      Build output served as static files
 
 ## Data source
 
-Round history comes from `roundPage` on two SqueekCore contracts on Ethereum Sepolia, in this order:
+Round history comes from `roundPage` on three SqueekCore contracts on Ethereum Sepolia, in this order:
 
 | Floors | Contract | Status |
 |---|---|---|
 | 1 to 331 | `0x74665dAecA35A2303e767E76a2FF1FB6F93e119f` | Stopped, pinned to round 1973 |
-| 332 onward | `0x980b4424c007caf7a1f3670b48c8eaef7ebc3d44` | Live |
+| 332 to 544 | `0x980b4424c007caf7a1f3670b48c8eaef7ebc3d44` | Stopped, pinned to round 1339 |
+| 545 onward | `0xfd6c166d4b8e2962e65746a13e5a0797cd4de0c4` | Live |
 
 The list lives in `lib/config.js`. Only append to it: floor numbers depend on its order. To use the live contract alone, set `SQUEEK_CORES` before the first sync and start from an empty database.
+
+When Squeekchain redeploys, rounds restart on a new contract and the game stops seeing the hamster: no new floors, no coin bonus, and the Arena stays closed. `GET https://api.squeekchain.com/v1/core` names the live contract and its genesis. Add it to the list and pin the old one to its last settled round.
 
 The sync checks that total work matches the chain and only reads rounds at least 12 Ethereum blocks old.
 

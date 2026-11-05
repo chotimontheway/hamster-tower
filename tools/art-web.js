@@ -127,6 +127,8 @@ const FACEX={
   beard:()=>P('M33 80C40 88 50 84 60 84C70 84 80 88 87 80C90 100 72 112 60 112C48 112 30 100 33 80Z',G('#D97F3A')),
   scarf:p=>P('M29 86Q60 98 91 86L93 96Q60 108 27 96Z',G(p.c||'#2FB8C8'))+P('M78 98L92 120L76 118L68 100Z',G(p.c||'#2FB8C8')),
 };
+/* the scene asks scripts/bake-rig.js for its hamsters, so they match the pets */
+const sceneHam=(k,o)=>window.sceneRig?window.sceneRig(k):hamster(o);
 function hamster(p){
   const [fur,belly]=FUR[p.fur||'golden'];
   let s=E(60,114,42,6.5,INK,0,'opacity=".18"');
@@ -389,7 +391,7 @@ function bgTower(cx,base,n,w0,fh,r,bal){
     const gold=i%5===4;
     s+=R(x2-10,top-8,nw+20,16,6,gold?'url(#bgGold)':'url(#bgLedge)',5);
     if(gold)[-.3,0,.3].forEach(q=>{s+=P(`M${cx+q*nw-11} ${top+8}H${cx+q*nw+11}V${top+34}L${cx+q*nw} ${top+26}L${cx+q*nw-11} ${top+34}Z`,G(RED),3);});
-    if(i===bal)balcony=T(`translate(${x3-14} ${y-82}) scale(.66)`,hamster({fur:'golden',eyes:'happy',hat:'band'}))+R(x3-20,y-6,96,14,6,'url(#bgLedge)',5)+L(`M${x3+6} ${y-6}V${y-34}M${x3+40} ${y-6}V${y-34}M${x3+72} ${y-6}V${y-34}M${x3-4} ${y-34}H${x3+74}`,INK,4)+P(`M${x3-14} ${y+8}L${x3+12} ${y+8}L${x3-14} ${y+30}Z`,'url(#bgLedge)',4);
+    if(i===bal)balcony=T(`translate(${x3-14} ${y-82}) scale(.66)`,sceneHam('balcony',{fur:'golden',eyes:'happy',hat:'band'}))+R(x3-20,y-6,96,14,6,'url(#bgLedge)',5)+L(`M${x3+6} ${y-6}V${y-34}M${x3+40} ${y-6}V${y-34}M${x3+72} ${y-6}V${y-34}M${x3-4} ${y-34}H${x3+74}`,INK,4)+P(`M${x3-14} ${y+8}L${x3+12} ${y+8}L${x3-14} ${y+30}Z`,'url(#bgLedge)',4);
     y=top-4;w=nw;
   }
   s+=balcony;
@@ -409,7 +411,7 @@ function bgWheel(cx,ground,r){
   for(let a=0;a<360;a+=12)s+=T(`rotate(${a} ${cx} ${cy})`,L(`M${cx} ${cy-r*.84}V${cy-r*.97}`,INK,7*k)+L(`M${cx} ${cy-r*.84}V${cy-r*.97}`,'#FFF6E5',3*k));
   s+=C(cx,cy,r*.1,G(STEEL),5*k);
   const hs=r*.0052;
-  s+=T(`translate(${cx-60*hs} ${cy+r*.82-118*hs}) scale(${hs})`,hamster({fur:'white',squeek:1,eyes:'star'}));
+  s+=T(`translate(${cx-60*hs} ${cy+r*.82-118*hs}) scale(${hs})`,sceneHam('wheel',{fur:'white',squeek:1,eyes:'star'}));
   s+=R(cx-r*.92,ground-10,r*1.84,26*k+6,9,G('#6E7290'),5)+R(cx-r*.42,ground-6,r*.84,18*k+4,5,G('#2A2450'),3)+TX(cx,ground+(11*k),'WHEELY',17*k,GOLD);
   return s;
 }
@@ -494,6 +496,8 @@ reg('nav_shop',()=>R(20,50,80,58,4,G('#F2E6C9'))+R(32,66,24,42,2,G('#8A5A3A'),2.
 reg('nav_rank',()=>L('M36 24H18C18 44 28 54 42 56M84 24H102C102 44 92 54 78 56',INK,8)+L('M36 24H18C18 44 28 54 42 56M84 24H102C102 44 92 54 78 56',GOLD,3.6)+P('M34 12H86C86 12 88 46 76 60C70 68 64 70 60 70C56 70 50 68 44 60C32 46 34 12 34 12Z',G(GOLD))+spark(60,36,12,'#FFF6C9')+R(53,70,14,16,2,G('#E5B23A'))+R(36,86,48,16,4,G('#8A5A3A')),'6 4 108 108');
 reg('nav_items',()=>T('translate(60 92) rotate(30)',W.sword()),'10 10 100 100');
 reg('wheel_big',()=>hamster(PETS.squeektoshi),'-14 -16 148 148');
+reg('logo',()=>hamster(PETS.squeektoshi),'-14 -16 148 148');
+reg('arena',()=>hamster(PETS.blade),'-14 -16 148 148');
 reg('hurt_pet',()=>hamster({fur:'golden',hat:'band',eyes:'sleepy',weapon:'sword'}),'-14 -16 148 148');
 reg('win_pet',()=>hamster({fur:'golden',hat:'band',eyes:'happy',weapon:'sword',back:['aura']}),'-14 -16 148 148');
 reg('coins',()=>[[36,84],[60,88],[84,84],[48,68],[72,68],[60,52]].map(([x,y])=>E(x,y,20,10,G(GOLD))+E(x,y-5,20,10,G('#FFE27A'))).join('')+spark(96,34,7,'#FFF6C9')+spark(24,44,5,'#FFF6C9'),'0 10 120 110');

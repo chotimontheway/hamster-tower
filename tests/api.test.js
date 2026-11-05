@@ -26,7 +26,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('all history is loaded', floors.length >= 499, floors.length);
   const rr = await fetch(BASE + '/api/rounds');
   check('floor list is cacheable by the CDN', (rr.headers.get('cache-control') || '').includes('s-maxage'));
-  check('two contracts are listed in order', R.cores.length === 2 && R.cores[0].to + 1 === R.cores[1].from, R.cores);
+  check('the contracts are listed in order', R.cores.length === 3 && R.cores.every((c, i) => !i || R.cores[i - 1].to + 1 === c.from), R.cores);
+  check('rounds from the newest contract become floors', R.cores[2].to > R.cores[2].from && floors[floors.length - 1].t >= 1793735400, R.cores[2]);
 
   console.log('Sign in');
   const a = client();
@@ -519,6 +520,164 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   if (process.env.LIVE_ON_BASE) {
     cleared = await firstClear(process.env.LIVE_ON_BASE);
     check('while the bonus is on a win pays 20% more and says so', cleared.body.over === 'win' && cleared.body.res.live === true && cleared.body.res.coins === 40, cleared.body.res);
+  }
+
+  console.log('Arena Tower');
+  {
+  const { arenaGate } = require('../lib/live');
+  const liveNow = await fetch(BASE + '/api/live').then(r => r.json());
+  check('the page can see when the Arena is open', typeof liveNow.arena.open === 'boolean' && liveNow.arena.until > 0, liveNow.arena);
+  const gf = [{ t: 1000 }, { t: '5000' }], gEnd = 5000 + 600 + E.ARENA.openMin * 60;
+  check('it stays open until a while after the newest round', arenaGate(gf, 5300).open === true && arenaGate(gf, gEnd - 1).open === true && arenaGate(gf, gEnd).open === false && arenaGate(gf, gEnd).until === gEnd, arenaGate(gf, gEnd));
+  check('with no rounds it is closed', arenaGate([], 1).open === false);
+  if (process.env.ARENA_CLOSED_BASE && process.env.DATABASE_URL) {
+    const shut = client(process.env.ARENA_CLOSED_BASE);await shut('/api/auth/guest', {});
+    const shutId = (await shut('/api/me')).body.player.id;await require('../lib/db').q('UPDATE players SET top = 20, top_at = now() WHERE id = $1', [shutId]);
+    const shutMe = await shut('/api/arena/me'), shutGo = await shut('/api/arena/start', { floor: 1 });
+    check('the page is told it is closed', shutMe.status === 200 && shutMe.body.gate.open === false && shutMe.body.gate.test === false, shutMe.body.gate);
+    check('while the hamster rests nobody can start a fight', shutGo.status === 409 && /closed/i.test(JSON.stringify(shutGo.body)), shutGo.body);
+    check('the board and your own place can still be read', (await fetch(process.env.ARENA_CLOSED_BASE + '/api/arena')).status === 200 && shutMe.body.targets.length === 3);
+  }
+  if (process.env.ARENA_OPEN_BASE && process.env.DATABASE_URL) {
+    const wide = client(process.env.ARENA_OPEN_BASE);await wide('/api/auth/guest', {});
+    const wideId = (await wide('/api/me')).body.player.id;await require('../lib/db').q('UPDATE players SET top = 20, top_at = now() WHERE id = $1', [wideId]);
+    const wideMe = await wide('/api/arena/me'), wideGo = await wide('/api/arena/start', { floor: 1 });
+    check('while he runs a plain player can fight', wideMe.body.gate.open === true && wideMe.body.gate.test === false && wideGo.status === 200, wideGo.body);
+  }
+  const strong = async () => { const c = await guest();await c('/api/dev', { op: 'pets' });await c('/api/dev', { op: 'jump', n: 20 });await c('/api/action', { type: 'team', team: ['sandman', 'thor', 'poseidon'], requestId: rid() });return c; };
+  const arenaMe = async c => (await c('/api/arena/me')).body;
+  const anonA = client();
+  check('anyone can read the floors and the CDN can keep them', ((await fetch(BASE + '/api/arena')).headers.get('cache-control') || '').includes('s-maxage'));
+  check('fighting, your own place, your defense and rewards need a sign in', (await anonA('/api/arena/start', { floor: 1 })).status === 401 && (await anonA('/api/arena/me')).status === 401 && (await anonA('/api/arena/defense', {})).status === 401 && (await anonA('/api/arena/claim', {})).status === 401);
+  const lowA = await guest();
+  check('it stays locked below floor 5', (await lowA('/api/arena/start', { floor: 1 })).status === 400 && (await lowA('/api/arena/defense', {})).status === 400);
+  const a1 = await strong(), a2 = await strong(), m0 = await arenaMe(a1);
+  check('a new player stands outside the tower with all tries and 3 floors to attack', m0.floor === 0 && m0.left === E.ARENA.tries && m0.targets.map(t => t.floor).join() === '1,2,3' && m0.def === null, m0);
+  check('floors nobody holds have the team the game gives them', m0.targets.every(t => t.bot && JSON.stringify(t.def) === JSON.stringify(E.arenaBot(t.floor))));
+  for (const f of [0, 4, 50, 101, -1, 'x', null]) check('floor ' + f + ' cannot be attacked from outside', (await a1('/api/arena/start', { floor: f })).status === 400);
+  const pickBot = async () => {
+    /* floors earlier tests may hold are skipped by asking for the free ones */
+    const m = await arenaMe(a1);return m.targets.find(t => t.bot).floor;
+  };
+  const f1 = await pickBot(), as1 = await a1('/api/arena/start', { floor: f1 });
+  check('a fight starts against pets on the enemy side', as1.status === 200 && as1.body.B.units.length === 6 && as1.body.B.units.filter(u => u.side === 'e').every(u => u.pet) && as1.body.node.arena === true && as1.body.holder.bot === true, as1.body.holder);
+  const at = ticketBody(as1.body.token);
+  check('no future luck reaches the page here either', !('rng' in as1.body.B) && !('rng' in at.B) && !('seed' in as1.body) && !('seed' in at));
+  const s2Line = async c => { const st = await c('/api/arena/start', { floor: f1 });return JSON.stringify(st.body.B.units.filter(u => u.side === 'p').map(u => [u.ref, u.hp, u.atk, u.def])); };
+  check('every pet fights at one level, whatever its real level', await s2Line(a1) === await (async () => { const c = await strong();await c('/api/dev', { op: 'jump', n: 120 });return s2Line(c); })());
+  check('opening a fight costs no try', (await arenaMe(a1)).left === E.ARENA.tries);
+  const stateA = (await a1('/api/me')).body.state, st1 = await a1('/api/arena/start', { floor: f1 }), w1 = await playOut(a1, st1, smartPlan);
+  check('a win takes the floor', w1.status === 200 && w1.body.over === 'win' && w1.body.arena.took === true && w1.body.arena.floor === f1 && w1.body.arena.from === 0 && w1.body.arena.left === E.ARENA.tries - 1, w1.body.arena);
+  const m1 = await arenaMe(a1), stateB = (await a1('/api/me')).body.state;
+  check('the next floors are now the ones above it', m1.floor === f1 && m1.targets[0].floor === f1 + 1, m1.floor);
+  check('the team that won it defends it', m1.def && m1.def.team.map(t => t.id).join() === 'sandman,thor,poseidon', m1.def);
+  check('it is in the fight log', m1.log.length === 1 && m1.log[0].mine && m1.log[0].won && m1.log[0].moved && m1.log[0].floor === f1, m1.log);
+  check('the Arena does not touch the climb or the coins', stateB.top === stateA.top && stateB.coins === stateA.coins && stateB.battles === stateA.battles && stateB.wins === stateA.wins && JSON.stringify(stateB.chests) === JSON.stringify(stateA.chests));
+  const again = await a1('/api/fight/turn', w1.req), m1b = await arenaMe(a1);
+  check('sending the winning turn again gives the same answer and moves nothing', again.status === 200 && again.body.arena.took === true && m1b.floor === f1 && m1b.left === E.ARENA.tries - 1 && m1b.log.length === 1, again.body.arena);
+  const myBoard = (await fetch(BASE + '/api/arena').then(r => r.json())).held.find(x => x.floor === f1);
+  check('the board shows who holds it, with the team and no gear detail it does not need', myBoard && myBoard.team.length === 3 && myBoard.name.startsWith('Guest') && !('wallet' in myBoard), myBoard);
+  const seen2 = (await arenaMe(a2)).targets.find(t => t.floor === f1);
+  check('another player sees the real holder and the real team', seen2 && !seen2.bot && seen2.def.team.length === 3 && seen2.name === myBoard.name, seen2);
+  await a1('/api/action', { type: 'team', team: ['blade'], requestId: rid() });await a1('/api/arena/defense', {});
+  const st2 = await a2('/api/arena/start', { floor: f1 });
+  const fakeA = at.ar && Object.assign({}, ticketBody(st2.body.token));
+  const forged = st2.body.token.split('.');forged[0] = Buffer.from(JSON.stringify(Object.assign(fakeA, { ar: Object.assign({}, fakeA.ar, { f: 100 }) }))).toString('base64url');
+  check('a changed ticket is refused', (await a2('/api/fight/turn', { token: forged.join('.'), plan: smartPlan(st2.body.B) })).status === 400);
+  check('another player\'s ticket is refused', (await a1('/api/fight/turn', { token: st2.body.token, plan: smartPlan(st2.body.B) })).status === 400);
+  const w2 = await playOut(a2, st2, smartPlan);
+  if (w2.body.over === 'win') {
+    const m2 = await arenaMe(a2), m1c = await arenaMe(a1);
+    check('beating a real holder from outside takes the floor and sends them outside', m2.floor === f1 && m1c.floor === 0, [m2.floor, m1c.floor]);
+    check('the one who lost it is told', m1c.log[0] && !m1c.log[0].mine && m1c.log[0].won && m1c.log[0].fell === 0 && m1c.log[0].other, m1c.log[0]);
+    check('being attacked uses no try', m1c.left === E.ARENA.tries - 1, m1c.left);
+    /* a1 takes a free floor above a2, then a2 beats it: they trade */
+    await a1('/api/action', { type: 'team', team: ['sandman', 'thor', 'poseidon'], requestId: rid() });
+    const tA = (await arenaMe(a1)).targets.find(t => t.bot && t.floor > f1) || (await arenaMe(a1)).targets.find(t => t.bot), out1 = await playOut(a1, await a1('/api/arena/start', { floor: tA.floor }), smartPlan);
+    check('a free floor above is taken', out1.body.arena.took === true, out1.body.arena);
+    if (tA.floor > f1 && tA.floor <= f1 + E.ARENA.reach) {
+      await a1('/api/action', { type: 'team', team: ['blade'], requestId: rid() });await a1('/api/arena/defense', {});
+      const out2 = await playOut(a2, await a2('/api/arena/start', { floor: tA.floor }), smartPlan);
+      if (out2.body.over === 'win') {
+        const x1 = await arenaMe(a1), x2 = await arenaMe(a2);
+        check('beating a holder above you trades places', x2.floor === tA.floor && x1.floor === f1, [x1.floor, x2.floor]);
+        check('the defender is told which floor it fell to', x1.log[0].fell === f1 && !x1.log[0].mine, x1.log[0]);
+      }
+    }
+  }
+  const a3 = await strong(), a4 = await strong(), tgt = (await arenaMe(a3)).targets.find(t => t.bot).floor;
+  const st3 = await a3('/api/arena/start', { floor: tgt }), st4 = await a4('/api/arena/start', { floor: tgt });
+  const w3 = await playOut(a3, st3, smartPlan), w4 = await playOut(a4, st4, smartPlan);
+  check('two players fighting for one free floor: the first win takes it', w3.body.arena.took === true, w3.body.arena);
+  if (w4.body.over === 'win') {
+    const m4 = await arenaMe(a4);
+    check('the second win moves nothing and says why', w4.body.arena.took === false && w4.body.arena.changed === true && m4.floor === 0, w4.body.arena);
+    check('and gives the try back', m4.left === E.ARENA.tries, m4.left);
+  }
+  const a5 = await guest();await a5('/api/dev', { op: 'jump', n: 20 });
+  for (let i = 0; i < E.ARENA.tries; i++) { const st = await a5('/api/arena/start', { floor: (await arenaMe(a5)).targets[0].floor });await sleep(st.body.minMs + 40);await a5('/api/fight/turn', { token: st.body.token, plan: smartPlan(st.body.B) }); }
+  check('only ' + E.ARENA.tries + ' tries a day', (await arenaMe(a5)).left === 0 && (await a5('/api/arena/start', { floor: (await arenaMe(a5)).targets[0].floor })).status === 409);
+  check('the test panel gives them back', (await a5('/api/dev', { op: 'arena' })).status === 200 && (await arenaMe(a5)).left === E.ARENA.tries);
+  const def0 = await a5('/api/arena/defense', {});
+  check('you choose the team that defends', def0.status === 200 && def0.body.def.team.length >= 1 && (await arenaMe(a5)).def.team.length === def0.body.def.team.length, def0.body);
+  if (process.env.DATABASE_URL) {
+    const AR = require('../lib/arena'), { q: q2 } = require('../lib/db');
+    const lost = await guest(), lostId = (await lost('/api/me')).body.player.id;
+    await lost('/api/dev', { op: 'jump', n: 6 });
+    const free = [];for (let f = 94; f >= 60 && free.length < 1; f--) { if (!(await q2('SELECT 1 FROM arena_floors WHERE floor = $1', [f])).rowCount) free.push(f); }
+    await q2('INSERT INTO arena_floors (floor, player_id) VALUES ($1, $2)', [free[0], lostId]);
+    const up = (await arenaMe(lost)).targets.find(t => t.bot).floor, lf = await playOut(lost, await lost('/api/arena/start', { floor: up }), smartPlan);
+    check('a lost fight moves nobody and uses the try', lf.body.over === 'lose' && lf.body.arena.took === false && !lf.body.arena.changed && (await arenaMe(lost)).floor === free[0] && (await arenaMe(lost)).left === E.ARENA.tries - 1, lf.body.arena);
+    const day0 = E.dayKey(Date.now()), dayN = n => E.dayKey(Date.now() - n * 864e5);
+    const rowDay = async (id, d) => { const r = await q2('SELECT floor FROM arena_days WHERE day = $1 AND player_id = $2', [d, id]);return r.rows[0] ? r.rows[0].floor : null; };
+    check('a fight today is written down with the floor', await rowDay(lostId, day0) === free[0]);
+    const wa = await guest(), waId = (await wa('/api/me')).body.player.id;
+    await q2('UPDATE players SET wallet = $2 WHERE id = $1', [waId, '0x' + String(waId).padStart(40, 'a')]);
+    await q2('INSERT INTO arena_days (day, player_id, floor) VALUES ($1, $5, 100), ($2, $5, 60), ($3, $5, 5), ($4, $5, 99)', [dayN(1), dayN(2), dayN(3), day0, waId]);
+    const c0 = (await wa('/api/me')).body.state.chests, mW = await arenaMe(wa), cl = await wa('/api/arena/claim', {}), c1 = (await wa('/api/me')).body.state.chests;
+    check('finished days wait to be claimed', mW.unclaimed === true);
+    check('each finished day pays by the floor it ended on, oldest first, nothing below the bands, today not yet', cl.status === 200 && cl.body.prizes.map(p => p.day + ':' + p.chest).join() === dayN(2) + ':2,' + dayN(1) + ':4', cl.body.prizes);
+    check('the chests are really added', c1[4] === c0[4] + 1 && c1[2] === c0[2] + 1 && c1[3] === c0[3], c1);
+    const cl2 = await wa('/api/arena/claim', {});
+    check('claiming again pays nothing', cl2.body.prizes.length === 0 && JSON.stringify((await wa('/api/me')).body.state.chests) === JSON.stringify(c1) && (await arenaMe(wa)).unclaimed === false);
+    await q2("UPDATE arena_days SET floor = 100 WHERE day = $1 AND player_id = $2", [dayN(1), waId]);
+    const [p1, p2] = await Promise.all([wa('/api/arena/claim', {}), wa('/api/arena/claim', {})]);
+    check('claiming twice at once pays nothing extra', p1.body.prizes.length === 0 && p2.body.prizes.length === 0);
+    const gu = await guest(), guId = (await gu('/api/me')).body.player.id;
+    await q2('INSERT INTO arena_days (day, player_id, floor) VALUES ($1, $2, 100)', [dayN(1), guId]);
+    const gc = (await gu('/api/me')).body.state.chests, gcl = await gu('/api/arena/claim', {}), gc2 = (await gu('/api/me')).body.state;
+    check('a guest climbs but gets no chest, and the day is settled', gcl.body.prizes.length === 0 && JSON.stringify(gc2.chests) === JSON.stringify(gc) && gc2.gifts.arenaDay === dayN(1), gc2.gifts);
+    await q2('UPDATE players SET wallet = $2 WHERE id = $1', [guId, '0x' + String(guId).padStart(40, 'b')]);
+    check('signing in later does not pay that day', (await gu('/api/arena/claim', {})).body.prizes.length === 0);
+    /* many players at once on one free floor: one gets it */
+    const racers = [];for (let i = 0; i < 12; i++) { const c = await guest();racers.push((await c('/api/me')).body.player.id); }
+    const open = (await q2('SELECT floor FROM generate_series(5, 58) AS floor WHERE floor NOT IN (SELECT floor FROM arena_floors) LIMIT 1')).rows[0].floor;
+    const def = { team: [{ id: 'blade', star: 1, gear: [] }] };
+    const results = await Promise.all(racers.map(id => AR.trade(id, { f: open, h: 0, m: 0 })));
+    check('12 players taking one free floor at once: exactly one gets it', results.filter(Boolean).length === 1, results);
+    const dupes = await q2('SELECT player_id FROM arena_floors GROUP BY player_id HAVING count(*) > 1');
+    check('nobody ever holds two floors', dupes.rowCount === 0);
+    /* the last turn sent twice at the same moment */
+    const dbl = await guest(), dblId = (await dbl('/api/me')).body.player.id, dblF = (await q2('SELECT floor FROM generate_series(5, 58) AS floor WHERE floor NOT IN (SELECT floor FROM arena_floors) LIMIT 1')).rows[0].floor, dblFight = 'double' + rid();
+    await q2('INSERT INTO arena_players (player_id, day, tries) VALUES ($1, $2, 3)', [dblId, day0]);
+    const dblBoth = await Promise.all([1, 2].map(() => AR.arenaFinish(dblId, dblFight, { f: dblF, h: 0, m: 0, def }, true, false)));
+    const dblHeld = (await q2('SELECT count(*)::int AS n FROM arena_floors WHERE player_id = $1', [dblId])).rows[0].n, dblTries = (await q2('SELECT tries FROM arena_players WHERE player_id = $1', [dblId])).rows[0].tries, dblLog = (await q2('SELECT moved FROM arena_log WHERE id = $1', [dblFight])).rows;
+    check('the winning turn sent twice at once books one floor, gives back no try and logs one row', dblHeld === 1 && dblTries === 3 && dblBoth.filter(x => x.took).length === 1 && dblLog.length === 1 && dblLog[0].moved === true, { dblHeld, dblTries, dblBoth, dblLog });
+    /* someone standing on a floor with no saved team can still lose it */
+    const bare = await guest(), bareId = (await bare('/api/me')).body.player.id, bareF = (await q2('SELECT floor FROM generate_series(5, 58) AS floor WHERE floor NOT IN (SELECT floor FROM arena_floors) LIMIT 1')).rows[0].floor;
+    await q2('INSERT INTO arena_floors (floor, player_id) VALUES ($1, $2)', [bareF, bareId]);
+    const bareBy = await guest(), bareById = (await bareBy('/api/me')).body.player.id;
+    const bareWin = await AR.arenaFinish(bareById, 'bare' + rid(), { f: bareF, h: bareId, m: 0, def }, true, false);
+    check('a floor whose holder has no saved team can still be taken', bareWin.took === true && bareWin.floor === bareF, bareWin);
+    /* a chain of trades at once never loses or doubles anyone */
+    const tower = [], base = (await q2('SELECT floor FROM generate_series(30, 58) AS floor WHERE floor NOT IN (SELECT floor FROM arena_floors) AND floor + 1 NOT IN (SELECT floor FROM arena_floors) AND floor + 2 NOT IN (SELECT floor FROM arena_floors) AND floor + 3 NOT IN (SELECT floor FROM arena_floors) LIMIT 1')).rows[0].floor;
+    const others = racers.filter(id => id !== racers[results.indexOf(true)]).slice(0, 4);
+    for (let i = 0; i < 4; i++) { await q2('INSERT INTO arena_floors (floor, player_id) VALUES ($1, $2)', [base + i, others[i]]);tower.push({ f: base + i, id: others[i] }); }
+    await Promise.all([AR.trade(others[0], { f: base + 1, h: others[1], m: base }), AR.trade(others[1], { f: base + 2, h: others[2], m: base + 1 }), AR.trade(others[2], { f: base + 3, h: others[3], m: base + 2 })]);
+    const after = await q2('SELECT floor, player_id FROM arena_floors WHERE floor >= $1 AND floor <= $2', [base, base + 3]);
+    check('trades at the same moment never lose or double anyone', after.rows.length === 4 && new Set(after.rows.map(r => Number(r.player_id))).size === 4 && others.every(id => after.rows.some(r => Number(r.player_id) === id)), after.rows);
+  }
+
   }
 
   console.log('The boards');

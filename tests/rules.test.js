@@ -26,6 +26,26 @@ check('in full from floor 200', E.hardAt(200) === 1 && E.hardAt(524) === 1);
 check('elements start at 40% and 25%', near(E.elRight(0), 1.4) && near(E.elWrong(0), .75));
 check('and reach 80% and 60%', near(E.elRight(1), 1.8) && near(E.elWrong(1), .4));
 
+console.log('Art');
+const vm = require('vm'), fsT = require('fs'), pathT = require('path');
+vm.runInThisContext(['client/rig-art.js', 'client/rig-mon.js'].map(f => fsT.readFileSync(pathT.join(__dirname, '..', f), 'utf8')).join('\n') + ';globalThis.RA=RA;');
+const q = n => 'x' + n, RA = globalThis.RA;
+check('every pet has a drawing', E.PETS_LIST.every(p => RA.PETS[p.id]));
+check('every monster and boss has a drawing', E.MONS_LIST.every(m => (m.boss ? RA.BOSS : RA.MON)[m.id]));
+check('every moving part of a monster is in its drawing', Object.entries(RA.MON).every(([, m]) => { const art = m.art(q); return (m.mv || []).every(v => art.includes('data-p="' + v[0] + '"')); }));
+check('no monster picture is drawn from a broken number', Object.values(RA.MON).every(m => !/NaN|undefined/.test(m.art(q))));
+{
+  /* an effect that adds particles while it draws, as Golden Wheel does, must not start a second copy of the effect loop: copies would double every frame until the page froze */
+  const frames = [], paint = new Proxy(function () {}, { get: (t, k) => k === Symbol.toPrimitive ? () => 0 : paint, apply: () => paint, set: () => true });
+  const sand = { window: { matchMedia: () => ({ matches: false }), devicePixelRatio: 1 }, matchMedia: () => ({ matches: false }), requestAnimationFrame: f => frames.push(f), cancelAnimationFrame() {}, performance, innerWidth: 800, innerHeight: 600, addEventListener() {}, console };
+  vm.runInNewContext(fsT.readFileSync(pathT.join(__dirname, '..', 'client/fx.js'), 'utf8') + ';globalThis.FX=FX;', sand);
+  sand.FX.init({ getContext: () => paint, width: 0, height: 0 }, () => 1);
+  sand.FX.add({ k: 'fn', life: 400, x: 0, y: 0, fn: () => sand.FX.add({ k: 'p', shape: 'dot', x: 0, y: 0, vx: 0, vy: 0, life: 50, size: 1, c: '#fff' }) });
+  let most = 0;
+  for (let i = 0; i < 12; i++) { const now = frames.splice(0); most = Math.max(most, now.length); now.forEach(f => f(i * 16)); }
+  check('an effect adding particles as it draws keeps one effect loop', most === 1, most);
+}
+
 console.log('Strength of a floor');
 const pool = E.MONS_LIST.map(m => m.id);
 let low = true, top = 1;
@@ -173,6 +193,69 @@ console.log('Saved teams');
   check('it is still there after that', !!E.itemByUid(G, 1));
   G.items = G.items.filter(i => i.uid !== 1);
   check('gear that is gone is simply skipped', E.usePreset(G, 0) === true && G.owned.blade.gear.weapon === undefined);
+}
+console.log('Arena Tower');
+{
+  const A = E.ARENA, foe = f => E.snapshotG(E.arenaBot(f));
+  check('a floor has its reach above it, the top has none', E.arenaTargets(0).join() === '1,2,3' && E.arenaTargets(50).join() === '51,52,53' && E.arenaTargets(99).join() === '100' && E.arenaTargets(100).length === 0);
+  check('the bot teams are the same every time', JSON.stringify(E.arenaBot(37)) === JSON.stringify(E.arenaBot(37)));
+  const pw = [];for (let f = 1; f <= A.floors; f++) pw.push(E.teamPower(foe(f)));
+  check('every floor has a team with 3 different pets and real numbers', Array.from({ length: A.floors }, (_, i) => E.arenaBot(i + 1)).every(b => b.team.length === 3 && new Set(b.team.map(t => t.id)).size === 3 && b.team.every(t => E.PETS[t.id])) && pw.every(Number.isFinite));
+  const avg = (a, b) => { const x = pw.slice(a, b);return x.reduce((m, v) => m + v, 0) / x.length; };
+  check('the higher the floor the stronger the team', avg(0, 10) < avg(20, 30) && avg(20, 30) < avg(45, 55) && avg(45, 55) < avg(70, 80) && avg(70, 80) < avg(90, 100), pw.filter((_, i) => i % 20 === 0));
+  const low = E.newSave('a'), high = E.newSave('b');high.owned.blade.lv = 200;
+  check('a pet fights at the same level whatever its real level', E.teamPower(E.arenaG(low)) === E.teamPower(E.arenaG(high)));
+  high.owned.blade.star = 4;
+  check('stars still count', E.teamPower(E.arenaG(high)) > E.teamPower(E.arenaG(low)));
+  high.items.push({ uid: 9, set: 'miner', slot: 'weapon', rar: 'e', plus: 2 });high.owned.blade.gear.weapon = 9;
+  const snap = E.teamSnapshot(high), withGear = E.teamPower(E.snapshotG(snap));
+  check('gear still counts', withGear > E.teamPower(E.arenaG(Object.assign(E.newSave('c'), { owned: { blade: Object.assign(E.newPet(), { star: 4 }) } }))));
+  high.items = [];high.owned.blade.gear = {};
+  check('a saved defense keeps its gear after the gear is sold', E.teamPower(E.snapshotG(snap)) === withGear);
+  check('prizes go by floor, nothing below the first band', E.arenaPrize(100).chest === 4 && E.arenaPrize(99).chest === 3 && E.arenaPrize(85).chest === 3 && E.arenaPrize(84).chest === 2 && E.arenaPrize(60).chest === 2 && E.arenaPrize(30).chest === 1 && E.arenaPrize(29).chest === 0 && E.arenaPrize(10).chest === 0 && E.arenaPrize(9) === null && E.arenaPrize(0) === null);
+  const mine = Object.assign(E.newSave('m'), { team: ['knight', 'nurse', 'wizard'] });mine.owned = { knight: E.newPet(), nurse: E.newPet(), wizard: E.newPet() };
+  const plan = B => { const p = {};for (const u of E.alive(B, 'p')) p[u.id] = { i: E.canPick(B, u.id, 2) ? 2 : E.canPick(B, u.id, 1) ? 1 : 0, target: null };return p; };
+  let ended = 0, crashed = null, moved = new Set(), foesRage = false, flipSide = true;
+  for (const pet of E.PETS_LIST) {
+    const others = E.PETS_LIST.filter(p => p.id !== pet.id), d = { team: [pet, others[(pet.id.length * 7) % others.length], others[(pet.id.length * 11 + 3) % others.length]].filter((v, i, a) => a.indexOf(v) === i).map(p => ({ id: p.id, star: 3, gear: [] })) };
+    try {
+      const { B } = E.startBattle(E.arenaG(mine), E.arenaNode(40), [], { seed: 'rules-arena-' + pet.id, foe: E.snapshotG(d) });
+      if (!B.units.filter(u => u.side === 'e').every(u => u.pet && u.look && E.PETS[u.ref])) flipSide = false;
+      let g = 0;
+      while (!B.over && g++ < 80) {
+        for (const ev of E.runRound(B, plan(B))) if (ev.t === 'use' && ev.who[0] === 'e') moved.add(ev.name);
+        if (B.units.some(u => u.side === 'e' && u.nrg > 0)) foesRage = true;
+      }
+      if (B.over) ended++;
+    } catch (e) { crashed = pet.id + ': ' + e.message; }
+  }
+  check('all ' + E.PETS_LIST.length + ' pets can fight on the enemy side without an error', !crashed, crashed);
+  check('every one of those fights ends', ended === E.PETS_LIST.length, ended);
+  check('they stand on the enemy side as pets', flipSide);
+  check('they gain Rage like any pet', foesRage);
+  const names = E.PETS_LIST.flatMap(p => [p.skills[1].n, p.skills[2].n]);
+  check('they use their skills and Rage skills, not only basic attacks', names.filter(n => moved.has(n)).length > names.length * .4, names.filter(n => moved.has(n)).length);
+  const { B: bb } = E.startBattle(E.arenaG(mine), E.arenaNode(40), [], { seed: 'peek', foe: foe(40) }), first = bb.queue.find(id => id[0] === 'e'), fu = E.uById(bb, first);
+  check('nothing about their next move is random', E.peekMove(bb, fu).n === E.peekMove(bb, fu).n && E.foeTarget(bb, fu) === E.foeTarget(bb, fu));
+  const d0 = { team: ['thor', 'poseidon', 'sandman'].map(id => ({ id, star: 5, gear: [] })) }, { B: b3 } = E.startBattle(E.arenaG(E.newSave('solo')), E.arenaNode(40), [], { seed: 'bonus', foe: E.snapshotG(d0) });
+  check('a team on the enemy side gets its own team bonuses', b3.reactE === .2 && b3.reactP === 0, [b3.reactE, b3.reactP]);
+  const n1 = E.arenaNode(7);
+  check('a floor keeps its own map and weather', JSON.stringify(n1) === JSON.stringify(E.arenaNode(7)) && n1.arena === true && E.MAP_NAMES[n1.map.t] && E.RULES.some(r => r.id === n1.rule));
+  const healer = E.PETS_LIST.find(p => p.skills[1].tgt !== 'self' && p.skills[1].ops.every(o => o[0] === 'heal')) || E.PETS_LIST.find(p => p.skills[1].ops.some(o => o[0] === 'heal' || o[0] === 'healLowOp') && !p.skills[1].ops.some(o => o[0] === 'dmg'));
+  if (healer) {
+    const { B: b4 } = E.startBattle(E.arenaG(mine), E.arenaNode(40), [], { seed: 'heal', foe: E.snapshotG({ team: [{ id: healer.id, star: 1, gear: [] }] }) });
+    const u = b4.units.find(x => x.side === 'e');
+    check('a healer does not waste its skill on a full team', E.foePick(b4, u) !== 1, healer.id);
+    u.hp = Math.round(u.hpMax * .4);
+    check('and uses it when someone is hurt', E.foePick(b4, u) === 1, healer.id);
+  }
+}
+console.log('\nThe contracts the rounds are read from');
+{
+  const cores = require('../lib/config').cores();
+  check('every contract but the newest is pinned to its last round', cores.slice(0, -1).every(c => c.through > 0) && cores[cores.length - 1].through === undefined, cores);
+  check('they run forward in time', cores.every((c, i) => !i || c.genesis > cores[i - 1].genesis), cores);
+  check('no contract is listed twice', new Set(cores.map(c => c.core.toLowerCase())).size === cores.length, cores);
 }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -52,6 +52,13 @@
     const had=chestTotal(G);await click('[data-act=sweep]',300);seen.push('sweep sheet='+(UI.sheet&&UI.sheet.type)+' chests '+had+' to '+chestTotal(G));
     await click('.sheet [data-act=close]');
     await click('[data-act=nav][data-v=ranks]',300);await until(()=>UI.ranks);seen.push('leaderboard view='+UI.view+' podium='+document.querySelectorAll('.pod').length+' my rank='+(qs('.my-no b')&&qs('.my-no b').textContent)+' me highlighted='+!!qs('.pod.me,.rank li.me'));
+    await click('[data-act=nav][data-v=tower]');await until(()=>qs('#arena-card'));seen.push('arena card='+!!qs('#arena-card')+' open='+!qs('#arena-card .btn').disabled);
+    await click('#arena-card .btn',300);await until(()=>UI.arena);seen.push('arena view='+UI.view+' tries='+UI.arena.me.left+' floors to attack='+document.querySelectorAll('.ar-foe').length);
+    await click('[data-act=arena-go]',500);await until(()=>UI.view==='battle');seen.push('arena battle foes are pets='+BT.B.units.filter(u=>u.side==='e').every(u=>u.pet)+' facing left='+BT.B.units.filter(u=>u.side==='e').every(u=>MOT.get(u.id).flip));
+    tipShow('u:e0',qs('#u-e0'));seen.push('arena foe tooltip has skills='+qs('#tip').innerHTML.includes('tip-mv'));tipHide();
+    const va=await fight();seen.push('arena fight '+va+' result='+JSON.stringify(UI.result&&UI.result.arena&&{won:UI.result.arena.won,took:UI.result.arena.took,floor:UI.result.arena.floor}));
+    await click('[data-act=rank-arena]',400);await until(()=>UI.arenaBoard);seen.push('arena board rows='+document.querySelectorAll('.rank li').length);
+    await click('[data-act=sheet][data-type=arena]',200);seen.push('arena rules sheet='+(UI.sheet&&UI.sheet.type));await click('.sheet [data-act=close]');
     await click('[data-act=sheet][data-type=trial]');await click('[data-act=tr-coins]',200);await click('[data-act=tr-coins]',200);await click('[data-act=tr-chests]',200);await click('.sheet [data-act=close]');
     seen.push('after test panel coins='+G.coins+' chests='+chestTotal(G));
     await click('[data-act=nav][data-v=shop]');seen.push('shop cards='+document.querySelectorAll('.shop-card').length+' blind bag='+!!qs('[data-act=bag]'));

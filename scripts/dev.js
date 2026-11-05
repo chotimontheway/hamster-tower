@@ -4,7 +4,7 @@ const { startLocalDb, migrate, ROOT } = require('./local-db');
 process.env.ALLOW_GUEST = process.env.ALLOW_GUEST || '1';
 process.env.ALLOW_TRIAL = process.env.ALLOW_TRIAL || '1';
 const PORT = +(process.env.PORT || 3000);
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webp': 'image/webp', '.json': 'application/json', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg', '.json': 'application/json', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
 const PUB = path.join(ROOT, 'public');
 function serveStatic(req, res) {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
