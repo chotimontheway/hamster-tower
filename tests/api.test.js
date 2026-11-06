@@ -229,6 +229,32 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const lbBody = await lb.json();
   check('leaderboard returns a list with the total and when each floor was reached', Array.isArray(lbBody.top) && lbBody.total >= 1 && lbBody.top.every(r => r.name && r.top > 0 && r.at > 0), lbBody);
   check('a climber sees their own rank', burst.some(r => r.status === 200 && r.body.rank >= 1 && r.body.top >= 1), burst.find(r => r.status === 200));
+  /* the request id is kept with the save, so a long or odd one is refused before anything is written */
+  const noPet = { type: 'feed', id: 'no-such-pet', auto: true };
+  const longId = await w('/api/action', Object.assign({ requestId: 'x'.repeat(65) }, noPet)), objId = await w('/api/action', Object.assign({ requestId: { a: 1 } }, noPet)), okId = await w('/api/action', Object.assign({ requestId: 'ok-id_1.' + rid() }, noPet));
+  check('an action id must be short and plain', longId.status === 400 && longId.body.error === 'Invalid request' && objId.status === 400 && objId.body.error === 'Invalid request' && okId.status === 400 && /do not own/.test(okId.body.error || ''), [longId.body, objId.body, okId.body]);
+  const brokenCookie = await fetch(BASE + '/api/me', { headers: { cookie: 'ht_s=%E0%A4%A; other=1' } });
+  check('a broken cookie is a signed out request, not a server error', brokenCookie.status === 401, brokenCookie.status);
+  /* Squeek pictures read the database each time and an extra word in the address skips the CDN, so one address may only ask so often */
+  let artCodes = [];
+  for (let k = 0; k < 6 && !artCodes.includes(429); k++) artCodes = artCodes.concat(await Promise.all(new Array(50).fill(0).map((x, i) => fetch(BASE + '/api/squeek/art?ids=1&n=' + k + '_' + i).then(r => r.status))));
+  check('Squeek pictures are limited for one address', artCodes[0] === 200 && artCodes.includes(429), [artCodes.length, artCodes.filter(x => x === 429).length]);
+  const cron = await fetch(BASE + '/api/cron/sync').then(r => r.json().then(j => ({ status: r.status, j })));
+  check('without CRON_SECRET the sync call only reads the chain when it is old', cron.status === 200 && cron.j.checked === true, cron);
+  if (/^http:\/\/(localhost|127\.0\.0\.1)/.test(BASE)) {
+    const http = require('http'), fs = require('fs'), path = require('path'), u = new URL(BASE);
+    const raw = (p, host) => new Promise(res => { const r = http.request({ host: u.hostname, port: u.port, path: p, headers: { host: host || u.host } }, x => { let s = ''; x.on('data', d => s += d); x.on('end', () => res({ status: x.statusCode, body: s })); }); r.on('error', e => res({ status: 0, body: e.message })); r.end(); });
+    check('the game on a computer refuses a request that names another site', (await raw('/api/config', 'evil.example')).status === 403 && (await raw('/', 'evil.example:' + u.port)).status === 403);
+    check('it still answers localhost and 127.0.0.1', (await raw('/api/config', 'localhost:' + u.port)).status === 200 && (await raw('/api/config', '127.0.0.1:' + u.port)).status === 200);
+    /* a folder next to public whose name starts the same way stays out of reach */
+    const side = path.join(__dirname, '..', 'public-leak-test');
+    fs.mkdirSync(side, { recursive: true });fs.writeFileSync(path.join(side, 'secret.txt'), 'secret');
+    const leak = await raw('/..%2Fpublic-leak-test%2Fsecret.txt');
+    fs.rmSync(side, { recursive: true, force: true });
+    check('no file outside public is served', leak.status === 404 && !leak.body.includes('secret'), leak);
+    const odd = await raw('/%E0%A4%A');
+    check('a broken address is refused and the server keeps running', odd.status === 400 && (await raw('/api/config')).status === 200, odd.status);
+  }
   console.log('A guest keeps their progress by signing in with a wallet');
   const owner = privateKeyToAccount(generatePrivateKey());
   const signIn = async (c, acc) => { const n = (await c('/api/auth/nonce', { address: acc.address })).body; return c('/api/auth/verify', { ticket: n.ticket, signature: await acc.signMessage({ message: n.message }) }); };
@@ -693,6 +719,29 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }
 
   }
+
+  console.log('SQK while no contract is set');
+  const sk = await fetch(BASE + '/api/sqk').then(r => r.json());
+  check('the SQK Chest stays off without a contract', sk.on === false);
+  /* a guest from earlier, since the test has made many new ones by now and new guests are limited per minute */
+  const skg = ad, skr = [await skg('/api/sqk/credit', { tx: '0x' + '1'.repeat(64) }), await skg('/api/sqk/claim', {}), await skg('/api/action', { type: 'sqkchest', requestId: rid() }), await skg('/api/action', { type: 'pouch', n: 1, requestId: rid() })];
+  check('a purchase cannot be counted while it is off', skr[0].status === 409, skr[0]);
+  check('a claim cannot be signed while it is off', skr[1].status === 409, skr[1]);
+  check('no SQK Chest opens from nothing', skr[2].status === 400, skr[2]);
+  check('no pouch opens from nothing', skr[3].status === 400, skr[3]);
+  /* the balance makes the server read the chain, so each player may ask a limited number of times a minute */
+  const bal = [];
+  for (let i = 0; i < 14; i++) bal.push(await skg('/api/sqk/balance'));
+  check('a guest has no SQK balance, and asking too often is limited', bal[0].status === 200 && bal[0].body.balance === null && bal.some(r => r.status === 429), bal.map(r => r.status).join());
+  const qOff = await skg('/api/quests');
+  check('social quests stay closed until SOCIAL_QUESTS=1', qOff.status === 200 && qOff.body.socialOn === false && qOff.body.social.length === 0, qOff.body.socialOn);
+  check('and every social call says they are coming soon, connecting X too', [await skg('/api/quests/open', { id: 1 }), await skg('/api/quests/social', { id: 1 }), await skg('/api/x/connect', {})].every(x => x.status === 409 && /coming soon/.test(x.body.error || '')));
+  const xback = await fetch(BASE + '/api/x/callback?code=c&state=s&next=https://evil.example', { redirect: 'manual' });
+  check('coming back from X without a session lands on the game itself, never elsewhere', xback.status === 302 && xback.headers.get('location') === '/?x=signin', [xback.status, xback.headers.get('location')]);
+  const skMe = await skg('/api/me');
+  /* the database keeps json keys in its own order, so each field is compared */
+  const skq = skMe.body.state && skMe.body.state.sqk;
+  check('a save that never touched SQK has none', skMe.status === 200 && !!skq && skq.box === 0 && skq.boss === 0 && skq.earned === 0 && Array.isArray(skq.days) && !skq.days.length && Array.isArray(skq.pouch) && !skq.pouch.length, skq);
 
   console.log('The boards');
   await sleep(31000);

@@ -252,6 +252,9 @@ reg('chest_2',()=>chest('#C9743F','#E8A06A','#F2C14E',0));
 reg('chest_3',()=>chest('#8A96B0','#D5DCEC','#5B9DFA',0));
 reg('chest_4',()=>chest('#D9A92E','#FFE27A','#F0506E',1));
 reg('chest_5',()=>chest('#3A8FD8','#BFEFFF','#F06BAE',1));
+/* drawn in client/rig-art.js, listed here so the baker knows them */
+reg('chest_sqk',()=>chest('#2A1758','#FF7AD9','#5BE7FF',1));
+reg('pouch_sqk',()=>chest('#4A2C9C','#FFCB4F','#5BE7FF',0));
 reg('bag',()=>shadow()+C(34,28,11,G('#C9743F'))+C(34,28,5.5,'#F59DB5',0)+C(86,28,11,G('#C9743F'))+C(86,28,5.5,'#F59DB5',0)+P('M38 30C14 60 16 110 60 110C104 110 106 60 82 30Q60 22 38 30Z',G('#D98A4E'))+P('M34 34Q60 26 86 34L84 44Q60 36 36 44Z',G(RED),2.4)+C(60,40,6,G(GOLD),2.2)+TX(60,92,'?',44,'#FFF6E0',`stroke="${INK}" stroke-width="2"`)+spark(100,20,6,GOLD)+spark(16,52,4.6,GOLD));
 /* FOOD */
 const fsh=()=>E(60,111,40,5,INK,0,'opacity=".16"');
@@ -495,6 +498,10 @@ reg('nav_codex',()=>T('translate(60 78) scale(1.5)',W.book()),'6 -6 108 108');
 reg('nav_shop',()=>R(20,50,80,58,4,G('#F2E6C9'))+R(32,66,24,42,2,G('#8A5A3A'),2.6)+C(50,88,2,GOLD,0)+R(64,66,26,22,2,G('#8FC8FF'),2.6)+P('M14 18H106L114 46C114 56 96 56 95 46C94 56 76 56 75 46C74 56 46 56 45 46C44 56 26 56 25 46C24 56 6 56 6 46Z',G(RED))+P('M34 18H50L46 46C44 54 26 54 25 46ZM70 18H86L95 46C94 54 76 54 75 46Z','#FFF6E5',2.2),'0 8 120 108');
 reg('nav_rank',()=>L('M36 24H18C18 44 28 54 42 56M84 24H102C102 44 92 54 78 56',INK,8)+L('M36 24H18C18 44 28 54 42 56M84 24H102C102 44 92 54 78 56',GOLD,3.6)+P('M34 12H86C86 12 88 46 76 60C70 68 64 70 60 70C56 70 50 68 44 60C32 46 34 12 34 12Z',G(GOLD))+spark(60,36,12,'#FFF6C9')+R(53,70,14,16,2,G('#E5B23A'))+R(36,86,48,16,4,G('#8A5A3A')),'6 4 108 108');
 reg('nav_items',()=>T('translate(60 92) rotate(30)',W.sword()),'10 10 100 100');
+/* QUESTS: a quest scroll with a check, Tower Points as a purple token with a tower, and a plain X mark for social quests */
+reg('nav_quest',()=>P('M32 22H88V96Q88 104 80 104H32Z',G('#F6E7C1'))+R(22,14,74,15,7.5,G('#E2B877'))+R(24,94,72,15,7.5,G('#E2B877'))+L('M42 46H76M42 60H72M42 74H64','#B8925E',3.4)+LL('M48 64L60 78L90 40','#35D07F',6)+spark(100,26,9,GOLD),'4 4 112 112');
+reg('tp',()=>C(60,60,50,G('#9C7BFF'),4)+C(60,60,39,G('#6A4FB8'),3)+P('M44 88V42H51V34H57V42H63V34H69V42H76V88Z',G('#FFE27A'),3)+R(54,70,12,18,3,G('#8A5A3A'),2.4)+R(55,50,10,10,2,'#6A4FB8',2.2)+spark(90,26,9,'#FFF6C9')+spark(28,90,6,'#FFF6C9'),'0 0 120 120');
+reg('x_logo',()=>R(14,14,92,92,24,'#15122B',4)+L('M40 36L82 86','#FFFFFF',10)+L('M82 36L40 86','#FFFFFF',4.5),'4 4 112 112');
 reg('wheel_big',()=>hamster(PETS.squeektoshi),'-14 -16 148 148');
 reg('logo',()=>hamster(PETS.squeektoshi),'-14 -16 148 148');
 reg('arena',()=>hamster(PETS.blade),'-14 -16 148 148');

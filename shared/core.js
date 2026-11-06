@@ -44,13 +44,31 @@ function buildFloors(rounds){
 /* SAVE DATA AND PET STATS */
 const newPet=lv=>({lv:lv||1,star:1,branch:null,gear:{},xp:0,full:0});
 function newSave(seed){
-  return {v:4,coins:0,top:0,team:['blade'],owned:{blade:newPet()},items:[],foods:{},presets:[],chests:[0,0,0,0,0],uid:1,pityE:0,pityL:0,bags:0,sweepDay:null,gifts:{},battles:0,wins:0,rs:seedOf('save:'+seed)};
+  return {v:4,coins:0,top:0,team:['blade'],owned:{blade:newPet()},items:[],foods:{},presets:[],chests:[0,0,0,0,0],uid:1,pityE:0,pityL:0,bags:0,sweepDay:null,gifts:{},sqk:{},tp:0,quests:{},battles:0,wins:0,rs:seedOf('save:'+seed)};
+}
+/* SQUEEK PETS: the save keeps each one's traits and level as the server last read them from the chain, and the pet list is filled from that */
+const isSq=id=>typeof id==='string'&&/^sq\d{1,4}$/.test(id);
+const sqSame=(a,b)=>!!a&&!!b&&a.pal===b.pal&&a.body===b.body&&a.eye===b.eye&&a.ill===b.ill;
+function addSqueek(id,t,lv){const k='sq'+(+id),cur=PETS[k];if(!cur||!cur.sq||cur.sq.lv!==lv||!sqSame(cur.sq.t,t))PETS[k]=squeekDef(+id,t,lv);return k;}
+function useSqueeks(G){if(G&&G.owned)for(const k of Object.keys(G.owned)){const o=G.owned[k];if(isSq(k)&&o&&o.sq&&o.sq.t)addSqueek(k.slice(2),o.sq.t,o.sq.lv);}}
+/* a battle ticket carries its Squeeks' traits, so any server can play the next turn */
+function ensureSqueeks(B){for(const u of B.units)if(u.sq)addSqueek(u.sq.id,u.sq.t,u.sq.lv);}
+const sqUsable=(G,id)=>!isSq(id)||!!(G.owned[id]&&G.owned[id].sq&&!G.owned[id].sq.gone);
+/* a team is 1 to 3 different owned pets, with at most SQ_MAX Squeeks that still belong to the player */
+function teamProblem(G,t){
+  if(!Array.isArray(t)||t.length<1||t.length>3||new Set(t).size!==t.length)return 'A team needs 1 to 3 different pets';
+  for(const id of t){
+    if(typeof id!=='string'||!Object.prototype.hasOwnProperty.call(G.owned,id))return 'You do not own this pet';
+    if(!sqUsable(G,id))return 'This Squeek has left your wallet';
+  }
+  if(t.filter(isSq).length>SQ_MAX)return 'Only one Squeek can be in a team';
+  return null;
 }
 const itemVal=it=>SLOT_VAL[it.rar]*(1+TUNE.plusGrow*it.plus);
 const itemByUid=(G,uid)=>G.items.find(i=>i.uid===uid);
 function setCounts(G,o){const c={};for(const s of Object.keys(o.gear)){const it=itemByUid(G,o.gear[s]);if(it)c[it.set]=(c[it.set]||0)+1;}return c;}
 function petStats(G,id){
-  const p=PETS[id],o=G.owned[id],r=ROLES[p.role],k=RARS[p.rar].m*(1+TUNE.lvGrow*(o.lv-1))*(1+.12*(o.star-1));
+  const p=PETS[id],o=G.owned[id],r=ROLES[p.role],k=RARS[p.rar].m*(1+TUNE.lvGrow*(o.lv-1))*(1+(p.sq?SQ_STAR:.12)*(o.star-1));
   const mods={nrg:1,heal:1,react:0,aoe:0,low:0,lifesteal:0,thorns:0,coin:0,ult:0,startShield:0,turnHeal:0,splash:0,dbl:false,teamAtk:0,startDodge:0,critDmg:50};
   let hp=r.hp*k,atk=r.atk*k,def=r.def*k,spd=r.spd+p.off+(o.lv-1)*.2+(o.star-1),crit=r.crit;
   for(const s of Object.keys(o.gear)){const it=itemByUid(G,o.gear[s]);if(!it)continue;const v=itemVal(it);
@@ -126,8 +144,10 @@ function newRound(B,ev){
   B.queue=roundOrder(B);
   ev.push({t:'round',n:B.round});ev.push(snapshot(B));
 }
+const sqInfo=id=>{const s=PETS[id]&&PETS[id].sq;return s?{id:s.id,t:s.t,lv:s.lv}:null;};
 function startBattle(G,node,floors,opts){
   opts=opts||{};
+  useSqueeks(G);
   const B={node:{floor:node.floor,round:node.round,work:node.work,type:node.type,boss:node.boss,hash:node.hash},hf:node.daily||node.arena?0:node.floor,h:node.daily||node.arena?0:hardAt(node.floor),units:[],round:0,queue:[],actIndex:0,over:null,rule:node.rule?RULES.find(r=>r.id===node.rule):null,rng:seedOf(opts.seed||(node.hash+':b:'+G.battles+':'+(opts.salt||''))),coinBonus:0,noReactP:false,reactP:0,dmgP:0,drowsyP:.3,first:node.floor>G.top,sandbox:!!opts.sandbox};
   const res=teamResonance(G.team);
   let hpBonus=0,critBonus=0,dmgBonus=0;
@@ -142,7 +162,9 @@ function startBattle(G,node,floors,opts){
     const st=petStats(G,id),hp=Math.round(st.hp*(1+hpBonus));
     B.coinBonus+=st.mods.coin;
     const healT=res.find(r=>r.trio&&r.heal);if(healT)st.mods.heal*=1+healT.heal;
-    B.units.push({id:'p'+i,side:'p',ref:id,n:PETS[id].n,el:PETS[id].el,role:PETS[id].role,boss:false,hp,hpMax:hp,atk:st.atk,def:st.def,spd:st.spd,crit:st.crit+critBonus,nrg:st.mods.nrgStart||0,cds:{},st:{},mark:null,alive:true,turn:0,phase:0,hitLast:false,charging:null,mods:st.mods});
+    const u={id:'p'+i,side:'p',ref:id,n:PETS[id].n,el:PETS[id].el,role:PETS[id].role,boss:false,hp,hpMax:hp,atk:st.atk,def:st.def,spd:st.spd,crit:st.crit+critBonus,nrg:st.mods.nrgStart||0,cds:{},st:{},mark:null,alive:true,turn:0,phase:0,hitLast:false,charging:null,mods:st.mods};
+    const sq=sqInfo(id);if(sq)u.sq=sq;
+    B.units.push(u);
   });
   if(opts.foe)addFoeTeam(B,opts.foe);
   else node.enemies.forEach((mid,i)=>B.units.push(makeEnemy(MONS[mid],i,node)));
@@ -159,6 +181,7 @@ function startBattle(G,node,floors,opts){
 }
 /* the Arena: another team stands on the enemy side, with its own team bonuses */
 function addFoeTeam(B,F){
+  useSqueeks(F);
   const res=teamResonance(F.team);
   let hpBonus=0,critBonus=0;B.dmgE=0;B.reactE=0;B.noReactE=false;
   for(const r of res){
@@ -171,7 +194,9 @@ function addFoeTeam(B,F){
     const st=petStats(F,id),hp=Math.round(st.hp*(1+hpBonus)),o=F.owned[id],look={};
     const healT=res.find(r=>r.trio&&r.heal);if(healT)st.mods.heal*=1+healT.heal;
     for(const s of Object.keys(o.gear)){const it=itemByUid(F,o.gear[s]);if(it)look[s]=it.set;}
-    B.units.push({id:'e'+i,side:'e',pet:true,look,star:o.star,ref:id,n:PETS[id].n,el:PETS[id].el,role:PETS[id].role,boss:false,hp,hpMax:hp,atk:st.atk,def:st.def,spd:st.spd,crit:st.crit+critBonus,nrg:st.mods.nrgStart||0,cds:{},st:{},mark:null,alive:true,turn:0,phase:0,hitLast:false,charging:null,hist:[hp,hp],mods:st.mods});
+    const u={id:'e'+i,side:'e',pet:true,look,star:o.star,ref:id,n:PETS[id].n,el:PETS[id].el,role:PETS[id].role,boss:false,hp,hpMax:hp,atk:st.atk,def:st.def,spd:st.spd,crit:st.crit+critBonus,nrg:st.mods.nrgStart||0,cds:{},st:{},mark:null,alive:true,turn:0,phase:0,hitLast:false,charging:null,hist:[hp,hp],mods:st.mods};
+    const sq=sqInfo(id);if(sq)u.sq=sq;
+    B.units.push(u);
   });
 }
 function checkOver(B){
@@ -487,6 +512,7 @@ function petAct(B,u,pl,ev){
 /* run a whole turn with the player's choices: plan={p0:{i,target},...} */
 function runRound(B,plan){
   const ev=[];if(B.over)return ev;
+  ensureSqueeks(B);
   plan=plan||{};
   /* Guard holds from the start of the turn, whoever acts first */
   for(const u of alive(B,'p')){const pl=plan[u.id],sk=pl&&PETS[u.ref].skills[pl.i];if(sk&&sk.kind==='guard')u.st.braced={v:1,t:1};}
@@ -602,12 +628,14 @@ const ARENA_PRIZES=[{from:100,chest:4},{from:85,chest:3},{from:60,chest:2},{from
 const arenaPrize=f=>ARENA_PRIZES.find(p=>f>=p.from)||null;
 /* a team as it stands right now, apart from the save, so selling gear later changes nothing */
 function teamSnapshot(G){
-  return {team:G.team.map(id=>{const o=G.owned[id];return {id,star:o.star,branch:o.branch||null,gear:Object.keys(o.gear).map(s=>{const it=itemByUid(G,o.gear[s]);return it?[s,it.set,it.rar,it.plus]:null;}).filter(Boolean)};})};
+  return {team:G.team.map(id=>{const o=G.owned[id],out={id,star:o.star,branch:o.branch||null,gear:Object.keys(o.gear).map(s=>{const it=itemByUid(G,o.gear[s]);return it?[s,it.set,it.rar,it.plus]:null;}).filter(Boolean)};if(o.sq)out.sq={t:o.sq.t,lv:o.sq.lv};return out;})};
 }
 function snapshotG(d){
   const owned={},items=[];let uid=1;
-  for(const t of d.team){const gear={};for(const g of t.gear||[]){items.push({uid,set:g[1],slot:g[0],rar:g[2],plus:g[3]});gear[g[0]]=uid++;}owned[t.id]=Object.assign(newPet(t.lv||ARENA.lv),{star:t.star,branch:t.branch||null,gear});}
-  return {team:d.team.map(t=>t.id),owned,items,battles:0,top:1e9};
+  for(const t of d.team){const gear={};for(const g of t.gear||[]){items.push({uid,set:g[1],slot:g[0],rar:g[2],plus:g[3]});gear[g[0]]=uid++;}owned[t.id]=Object.assign(newPet(t.lv||ARENA.lv),{star:t.star,branch:t.branch||null,gear},t.sq&&isSq(t.id)?{sq:{t:t.sq.t,lv:t.sq.lv}}:{});}
+  const F={team:d.team.map(t=>t.id),owned,items,battles:0,top:1e9};
+  useSqueeks(F);
+  return F;
 }
 const arenaG=G=>snapshotG(teamSnapshot(G));
 const teamPower=F=>F.team.reduce((a,id)=>a+petPower(petStats(F,id)),0);
@@ -664,7 +692,7 @@ const PRESETS=6;
 const savedUids=G=>new Set((G.presets||[]).flatMap(s=>s?Object.values(s.gear).flatMap(g=>Object.values(g)):[]));
 function savePreset(G,i){G.presets=G.presets||[];G.presets[i]={team:G.team.slice(),gear:Object.fromEntries(G.team.map(id=>[id,Object.assign({},G.owned[id].gear)]))};}
 function usePreset(G,i){
-  const s=G.presets&&G.presets[i],team=s?s.team.filter(id=>G.owned[id]):[];
+  const s=G.presets&&G.presets[i],team=(s?s.team.filter(id=>G.owned[id]&&sqUsable(G,id)):[]).filter((id,k,a)=>!isSq(id)||a.filter(isSq).indexOf(id)<SQ_MAX);
   if(!team.length)return false;
   G.team=team;
   for(const id of team)for(const slot of Object.keys(SLOTS)){
@@ -696,6 +724,150 @@ function openChest(G,t){
   return out;
 }
 const chestTotal=G=>G.chests.reduce((a,b)=>a+b,0);
+/* SQK: chests bought with SQK and pouches from boss floors. box is the SQK Chests not opened yet, days the UTC days whose purchase
+   was already counted, pouch the floor of each pouch not opened yet, boss the highest boss floor that paid one, earned every SQK
+   the pouches gave, in millionths. Whether a purchase happened and what was paid out live on the chain, see lib/sqk.js */
+function sqkOf(G){
+  const q=G.sqk&&typeof G.sqk==='object'?G.sqk:(G.sqk={});
+  q.box=Math.max(0,q.box|0);q.days=Array.isArray(q.days)?q.days:[];q.pouch=Array.isArray(q.pouch)?q.pouch:[];q.boss=Math.max(0,q.boss|0);q.earned=Math.max(0,Math.floor(+q.earned||0));
+  return q;
+}
+const wPick=(w,s)=>{let x=rnd(s)*w.reduce((a,b)=>a+b,0);for(let i=0;i<w.length;i++){if(x<w[i])return i;x-=w[i];}return w.length-1;};
+const nIn=(r,s)=>r[0]+Math.floor(rnd(s)*(r[1]-r[0]+1));
+/* a purchase is counted once, by the UTC day it was made, since the contract sells one a day to each wallet */
+function creditSqkChest(G,day){
+  const q=sqkOf(G);
+  if(q.days.includes(day))return false;
+  q.days.push(day);if(q.days.length>120)q.days=q.days.slice(-120);
+  q.box++;
+  return true;
+}
+/* the most items one SQK Chest can add, so it only opens with room for all of them */
+const sqkChestRoom=()=>SQK_CHEST.gear.n[1]+SQK_CHEST.bags.n[1];
+function openSqkChest(G){
+  const q=sqkOf(G);if(!(q.box>0))return null;
+  q.box--;
+  const s=G.rs,C=SQK_CHEST,out={kind:'sqk',chests:[0,0,0,0,0],food:[],bags:[],gear:[],pet:null};
+  for(let i=nIn(C.chests.n,s);i>0;i--){const t=wPick(C.chests.w,s);out.chests[t]++;G.chests[t]++;}
+  const low=Math.min(...G.team.map(id=>G.owned[id].lv)),tier=Math.max(0,FOOD_BAGS.findIndex(b=>low>=b.a&&(!b.b||low<b.b)));
+  out.foodBag=tier;
+  for(let i=nIn(C.food.n,s);i>0;i--){G.coins+=FOOD_BAGS[tier].cost;out.food.push(openFoodBag(G,tier));}
+  for(let i=nIn(C.bags.n,s);i>0;i--){G.coins+=BAG_COST;out.bags.push(openBag(G));}
+  for(let i=nIn(C.gear.n,s);i>0;i--){const rar=RAR_ORDER[wPick(C.gear.w,s)];out.gear.push({kind:'item',rar,item:newItem(G,rar)});}
+  if(rnd(s)<C.pet.p)out.pet=grantPet(G,RAR_ORDER[wPick(C.pet.w,s)]);
+  return out;
+}
+const pouchBand=f=>{let b=null;for(const x of SQK_POUCH.bands)if(f>=x.from)b=x;return b;};
+/* every boss floor cleared since the last pouch, oldest first. A wallet that cleared them before pouches existed gets them on its next win */
+function grantPouches(G){
+  const q=sqkOf(G),got=[],top=Math.floor(G.top/10)*10;
+  for(let f=Math.floor(q.boss/10)*10+10;f<=top;f+=10)if(pouchBand(f)){q.pouch.push(f);got.push(f);}
+  q.boss=Math.max(q.boss,top);
+  return got;
+}
+/* a pouch from a higher floor pays more, luck picks how much */
+function rollPouch(f,s){
+  const b=pouchBand(f);if(!b)return null;
+  const k=wPick(SQK_POUCH.luck.map(l=>l[1]),s),L=SQK_POUCH.luck[k];
+  return {k,amount:Math.round((b.a+(b.b-b.a)*L[0])*SQK_UNIT)};
+}
+function openPouch(G){
+  const q=sqkOf(G);if(!q.pouch.length)return null;
+  const f=q.pouch.shift(),r=rollPouch(f,G.rs);
+  if(!r)return {kind:'pouch',floor:f,luck:0,amount:0};
+  q.earned+=r.amount;
+  return {kind:'pouch',floor:f,luck:r.k,amount:r.amount};
+}
+/* SQK as text, up to 2 decimals */
+const sqkText=u=>{const v=Math.round(u/SQK_UNIT*100)/100;return v.toLocaleString('en-US',{maximumFractionDigits:2});};
+/* QUESTS: the day's list sits in the save with its progress. The server makes it from the player's id and the day, so it is the same however
+   often it is made. got holds the milestones paid, swap whether today's swap is used, sd the social quests done, so when each was opened. The X account lives in x_accounts, see lib/xapi.js */
+function questOf(G){
+  const q=G.quests&&typeof G.quests==='object'?G.quests:(G.quests={});
+  if(!Array.isArray(q.list))q.list=[];if(!Array.isArray(q.got))q.got=[];if(!Array.isArray(q.sd))q.sd=[];if(!q.so||typeof q.so!=='object')q.so={};
+  q.swap=q.swap|0;
+  return q;
+}
+const questBand=top=>{let i=0;QUEST_BANDS.forEach((b,k)=>{if(top>=b.from)i=k;});return Object.assign({i},QUEST_BANDS[i]);};
+/* how many finished quests each milestone needs: one, half and all of them */
+const questMs=n=>[...new Set([1,Math.ceil(n/2),n])];
+const questMsTp=(n,tp)=>{const ms=questMs(n);return ms.map((m,k)=>tp*(k===ms.length-1?QUEST_MS[2]:k===0?QUEST_MS[0]:QUEST_MS[1]));};
+const questDone=x=>x.have>=x.n;
+function makeQuest(k,top,band,s,list){
+  const d=QUEST_KINDS[k],x={k,n:d.need?d.need[band.i<2?0:band.i<4?1:2]:1,have:0,tp:band.tp*d.x},taken=list.map(y=>y.f).filter(Boolean);
+  if(k==='floor'){const lo=Math.max(1,top-12);let f=lo;for(let t=0;t<24;t++){f=lo+Math.floor(rnd(s)*(top-lo+1));if(!taken.includes(f))break;}x.f=f;}
+  if(k==='boss'){let f=10;for(let t=0;t<12;t++){f=10*(1+Math.floor(rnd(s)*Math.floor(top/10)));if(!taken.includes(f))break;}x.f=f;}
+  return x;
+}
+const questKinds=(top,max)=>Object.keys(QUEST_KINDS).filter(k=>top>=QUEST_KINDS[k].from&&(k!=='climb'||top<max));
+/* different kinds, except that a player past floor 6 may be asked to clear two old floors */
+function newQuests(top,max,seed){
+  const s=seedOf('quest:'+seed),band=questBand(top),keys=questKinds(top,max),list=[];
+  for(let g=0;g<80&&list.length<band.n;g++){
+    const k=keys[wPick(keys.map(x=>QUEST_KINDS[x].w),s)],same=list.filter(x=>x.k===k).length;
+    if(same&&!(k==='floor'&&same<2&&top>=6))continue;
+    list.push(makeQuest(k,top,band,s,list));
+  }
+  return list;
+}
+/* ctx is the day, the seed (the player's id and the day) and max, the floors the tower has */
+function ensureQuests(G,ctx){
+  const q=questOf(G);
+  if(q.day!==ctx.day){q.day=ctx.day;q.top=G.top;q.list=newQuests(G.top,ctx.max,ctx.seed);q.got=[];q.swap=0;}
+  return q;
+}
+/* something happened that a quest may count. Returns the quests it finished, whose TP waits for the player to claim it */
+function questOn(G,ctx,ev){
+  const q=ensureQuests(G,ctx),fin=[];
+  for(const x of q.list){
+    if(questDone(x))continue;
+    const was=x.have;
+    if(ev.k==='win'){
+      if((x.k==='floor'||x.k==='boss')&&ev.f===x.f)x.have=1;
+      if(x.k==='climb'&&ev.first)x.have=1;
+      if(x.k==='wins')x.have++;
+    }else if(ev.k===x.k)x.have+=ev.n||1;
+    x.have=Math.min(x.n,x.have);
+    if(x.have!==was&&questDone(x))fin.push(x);
+  }
+  return fin;
+}
+/* a finished quest pays its own TP once, when the player claims it on the Quests screen. The milestones pay on top */
+function claimQuestTp(G,ctx,i){
+  const q=ensureQuests(G,ctx),x=q.list[i];
+  if(!x||!questDone(x)||x.paid)return null;
+  x.paid=1;G.tp=(G.tp||0)+(x.tp||0);
+  return {q:i,tp:x.tp||0};
+}
+/* a milestone pays once. sqk says whether this player may get SQK, which a guest or a dev wallet may not */
+function claimQuest(G,ctx,i,sqk){
+  const q=ensureQuests(G,ctx),ms=questMs(q.list.length),done=q.list.filter(questDone).length;
+  if(!(i>=0&&i<ms.length)||q.got.includes(i)||done<ms[i])return null;
+  const band=questBand(q.top),tp=questMsTp(q.list.length,band.tp)[i];
+  let amount=0;
+  if(i===ms.length-1&&band.sqk&&sqk){const L=SQK_POUCH.luck[wPick(SQK_POUCH.luck.map(l=>l[1]),G.rs)];amount=Math.round((band.sqk[0]+(band.sqk[1]-band.sqk[0])*L[0])*SQK_UNIT);sqkOf(G).earned+=amount;}
+  G.tp=(G.tp||0)+tp;q.got.push(i);
+  return {i,tp,sqk:amount};
+}
+/* one quest a day may be traded for another kind, for example an Arena quest on a day the Arena never opens */
+function swapQuest(G,ctx,i){
+  const q=ensureQuests(G,ctx),x=q.list[i];
+  if(!x||q.swap>=1||questDone(x))return null;
+  const floors=q.list.filter(y=>y.k==='floor').length,keys=questKinds(q.top,ctx.max).filter(k=>k!==x.k&&(!q.list.some(y=>y.k===k)||(k==='floor'&&floors<2&&q.top>=6)));
+  if(!keys.length)return null;
+  const s=seedOf('quest-swap:'+ctx.seed+':'+i),k=keys[wPick(keys.map(z=>QUEST_KINDS[z].w),s)];
+  q.list[i]=makeQuest(k,q.top,questBand(q.top),s,q.list.filter((y,j)=>j!==i));
+  q.swap=1;
+  return q.list[i];
+}
+/* a social quest pays its TP, and with its chance some SQK */
+function socialReward(G,quest,sqk){
+  const q=questOf(G);let amount=0;
+  if(sqk&&quest.sqkP>0&&rnd(G.rs)<quest.sqkP)amount=Math.round(Math.round(quest.sqkMax*(.2+.8*rnd(G.rs))*100)/100*SQK_UNIT);
+  if(amount)sqkOf(G).earned+=amount;
+  G.tp=(G.tp||0)+quest.tp;q.sd.push(quest.id);delete q.so[quest.id];
+  return {tp:quest.tp,sqk:amount};
+}
 const equippedUids=G=>new Set(Object.values(G.owned).flatMap(o=>Object.values(o.gear)));
 function itemName(it){return SETS[it.set].n+' '+SLOTS[it.slot].n+(it.plus?' +'+it.plus:'');}
 function equip(G,petId,uid){const it=itemByUid(G,uid);if(!it)return;for(const o of Object.values(G.owned)){if(o.gear[it.slot]===uid)delete o.gear[it.slot];}G.owned[petId].gear[it.slot]=uid;}

@@ -81,6 +81,8 @@ window.rigSvg=id=>{
   if(id==='fbag_picnic')return wrap(RA.picnicBag(),'-124 -116 248 248');
   if(id==='fbag_feast')return wrap(RA.feastBag(),'-124 -136 248 248');
   if(CHEST[id])return wrap(RA.chestArt(...CHEST[id]),'-124 -134 248 248');
+  if(id==='chest_sqk')return wrap(RA.sqkChest(),'-124 -136 248 248');
+  if(id==='pouch_sqk')return wrap(RA.sqkPouch(),'-124 -122 248 248');
   if(id==='nav_team')return actorSvg('ham','blade');
   if(id==='win_pet')return actorSvg('ham','blade',{face:'joy'});
   if(id==='hurt_pet')return actorSvg('ham','blade',{face:'hurt'});

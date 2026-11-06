@@ -63,6 +63,10 @@ const FX=(()=>{
     candle:(g,s,c)=>{g.fillStyle=c;g.fillRect(-s*.35,-s,s*.7,s*2);g.fillRect(-s*.07,-s*1.5,s*.14,s*3);},
     block:(g,s,c)=>{g.fillStyle=c;g.strokeStyle=INK;g.lineWidth=2;g.beginPath();g.rect(-s,-s,s*2,s*2);g.fill();g.stroke();},
     shield:(g,s,c)=>{g.fillStyle=c||'#5B7CFA';g.strokeStyle=INK;g.lineWidth=2;g.beginPath();g.moveTo(-s,-s*.8);g.quadraticCurveTo(0,-s*1.1,s,-s*.8);g.lineTo(s,0);g.quadraticCurveTo(s*.8,s*.8,0,s*1.2);g.quadraticCurveTo(-s*.8,s*.8,-s,0);g.closePath();g.fill();g.stroke();},
+    /* Squeek effects are made of the same lit dots as a Squeek */
+    led:(g,s,c)=>{g.fillStyle=c;g.beginPath();g.arc(0,0,s,0,6.283);g.fill();g.fillStyle='#fff';g.beginPath();g.arc(0,0,s*.42,0,6.283);g.fill();},
+    px:(g,s,c)=>{g.fillStyle=c;g.fillRect(-s,-s,s*2,s*2);g.fillStyle='rgba(255,255,255,.7)';g.fillRect(-s*.4,-s*.4,s*.8,s*.8);},
+    cap:(g,s,c)=>{g.fillStyle=c;g.beginPath();g.moveTo(-s*1.3,-s*.6);g.lineTo(s*1.3,-s*.6);g.arc(s*1.3,0,s*.6,-1.571,1.571);g.lineTo(-s*1.3,s*.6);g.arc(-s*1.3,0,s*.6,1.571,4.712);g.fill();g.fillStyle='#fff';g.fillRect(-s,-s*.22,s*2,s*.44);},
   };
   function alphaOf(p,u){const f=p.fade===undefined?.55:p.fade;let a=p.a===undefined?1:p.a;if(u>f)a*=1-(u-f)/(1-f);if(p.fin&&u<p.fin)a*=u/p.fin;return a;}
   function draw(p){
@@ -97,6 +101,19 @@ const FX=(()=>{
   const each=(T,f)=>T.forEach(f);
   const dir=(A,T)=>(T[0]&&T[0].x<A.x)?-1:1;
   const WH='#F4F7FF',GD='#FFC94D',GN='#35D07F',PK='#F06BAE',BL='#2FD6E8',YL='#FFE27A',RD='#F0506E',PU='#C99BFF',IC='#BFEFFF';
+  /* SQUEEK PIECES: lit dots in the Squeek's own colour */
+  const SQC=(who,c)=>(who&&who.d&&who.d.sq&&who.d.sq.col)||c||'#FF7AD9';
+  function ledRing(t,c,cnt,spd,delay){for(let i=0,m=n(cnt);i<m;i++){const a=i/m*6.283;add({k:'p',shape:'led',x:t.x,y:t.y,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,drag:2.2,life:420,size:4,c,delay});}}
+  function dotLine(A,t,c,cnt,delay){for(let i=1,m=n(cnt);i<=m;i++){const u=i/(m+1);add({k:'p',shape:'px',x:A.x+(t.x-A.x)*u,y:A.y-10+(t.y-A.y+10)*u,vx:rand(-30,30),vy:rand(-40,10),life:360,size:3.5,c,delay:(delay||0)+u*120});}}
+  function gridAt(t,c,R,life,delay){add({k:'fn',life,x:0,y:0,delay,fade:.75,fn:(g,u)=>{const s=Q.level?14:22,front=u*R*1.6;g.save();g.globalCompositeOperation='lighter';for(let x=-R;x<=R;x+=s)for(let y=-R;y<=R;y+=s){const d=Math.hypot(x,y);if(d>R)continue;const e=Math.max(0,1-Math.abs(d-front)/(R*.35));if(e<.05)continue;g.globalAlpha=e*(1-u*.6);g.fillStyle=e>.7?'#fff':c;g.fillRect(t.x+x-3,t.y+y-3,6,6);}g.restore();}});}
+  function orbit(t,c,R,life,delay){add({k:'fn',life,x:0,y:0,delay,fade:.7,fn:(g,u)=>{g.save();g.globalCompositeOperation='lighter';for(let i=0;i<12;i++){const a=i/12*6.283+u*7;g.globalAlpha=.9;g.fillStyle=i%3?c:'#fff';g.beginPath();g.arc(t.x+Math.cos(a)*R,t.y+Math.sin(a)*R*.42,4,0,6.283);g.fill();}g.restore();}});}
+  /* a Squeek's Rage skill: the screen lights up in its colour and the Squeek itself crosses the screen before the hit */
+  function ultScreen(who,c){
+    FLASH(c,.38,220);
+    add({k:'fn',life:520,x:0,y:0,fade:.8,fn:(g,u)=>{const s=Q.level?26:40,rows=Math.ceil(H/s),cols=Math.ceil(W/s),band=u*(W+H);g.save();g.globalCompositeOperation='lighter';for(let r=0;r<rows;r++)for(let q=0;q<cols;q++){const d=q*s+r*s*.6,e=Math.max(0,1-Math.abs(d-band)/220);if(e<.08)continue;g.globalAlpha=e*.5;g.fillStyle=e>.8?'#fff':c;g.fillRect(q*s+s/2-3,r*s+s/2-3,6,6);}g.restore();}});
+    const im=who&&who.d&&who.d.sq&&typeof SQ!=='undefined'?SQ.pimg(who.d.sq.id):null;
+    if(im)add({k:'fn',life:560,x:0,y:0,fade:.75,fn:(g,u)=>{const h=Math.min(H*.62,W*.6),w=h*im.width/im.height,e=u<.25?1-Math.pow(1-u/.25,3):1,x=W*.5-w/2-(1-e)*W*.5+u*40,y=H*.5-h/2,al=Math.min(1,u*5)*(u>.7?(1-u)/.3:1);g.save();const gr=g.createRadialGradient(W/2,H/2,h*.1,W/2,H/2,h*.75);gr.addColorStop(0,c);gr.addColorStop(1,'rgba(0,0,0,0)');g.globalCompositeOperation='lighter';g.globalAlpha=al*.6;g.fillStyle=gr;g.fillRect(0,0,W,H);g.globalCompositeOperation='source-over';g.globalAlpha=al;g.drawImage(im,x,y,w,h);g.restore();}});
+  }
   /* per-skill effects: each returns the delay in ms until the hit lands */
   const P={
     slash:(A,T)=>{each(T,t=>{arc(t,WH,{delay:120});burst(t.x,t.y,'#fff',6,190,'spark',6,340,0,170);});return 180;},
@@ -226,6 +243,30 @@ const FX=(()=>{
     trident:(A,T)=>{each(T,t=>{[-16,0,16].forEach((o,i)=>line({x:t.x-70,y:t.y+o},{x:t.x+36,y:t.y+o},GD,5,200,100+i*20,1));burst(t.x,t.y,BL,7,200,'drop',5,420,400,170);});return 180;},
     whirlpool:(A,T)=>{each(T,t=>{for(let i=0;i<10;i++){const a=i/10*6.283;add({k:'shot',x:t.x+Math.cos(a)*70,y:t.y+Math.sin(a)*40,x2:t.x,y2:t.y,shape:'drop',c:BL,size:6,life:360,delay:i*24,fade:.9});}ring(t,BL,60,10,6,420,20);});return 330;},
     tsunami:(A,T)=>{FLASH('#2FD6E8',.22,180);wave(T,'rgba(47,150,232,.75)',dir(A,T),{h:230,w:190,ms:620,delay:80});wave(T,'rgba(47,214,232,.55)',dir(A,T),{h:170,w:170,ms:620,delay:180});each(T,(t,i)=>{burst(t.x,t.y,'#BFEFFF',10,260,'drop',6,520,600,300+i*70);});return 380;},
+    /* SQUEEKS: every move is made of lit dots in the Squeek's own colour, bigger than a pet's, and a Rage skill shows the Squeek itself across the screen */
+    sqSlash:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{arc(t,k,{delay:90,w:16,r:62,a0:-2.5,sw:3});arc(t,'#fff',{delay:150,w:7,r:54,a0:-2.4,sw:2.8});ledRing(t,k,10,190,140);burst(t.x,t.y,k,12,280,'px',5,420,0,150);});return 190;},
+    sqBash:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{ring(t,k,10,84,10,340,130,1);ledRing(t,k,12,230,130);burst(t.x,t.y,'#fff',8,240,'px',5,380,0,140);});return 180;},
+    sqShot:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{shot(A,t,'led',{c:k,size:10,ms:200,trail:6,tc:k,tshape:'px',tsize:3});ring(t,k,8,64,8,320,200,1);burst(t.x,t.y,k,10,250,'px',4,380,0,200);});return 200;},
+    sqBeam:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{line({x:A.x,y:A.y-10},t,k,16,320,40,1);line({x:A.x,y:A.y-10},t,'#fff',6,300,60,1);dotLine(A,t,k,10,60);ring(t,k,8,70,9,340,150);burst(t.x,t.y,k,10,240,'led',4,420,0,160);});return 180;},
+    sqTap:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{shot(A,t,'led',{c:k,size:9,ms:200,arc:30,trail:4,tc:k,tshape:'px',tsize:3});ring(t,k,6,46,6,280,200);});rise(A,'plus',{n:4,c:k,size:7});return 200;},
+    sqBlink:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{line({x:t.x-70,y:t.y-50},{x:t.x+70,y:t.y+50},k,8,190,80,1);line({x:t.x+70,y:t.y-50},{x:t.x-70,y:t.y+50},'#fff',6,190,150,1);burst(t.x,t.y,k,12,300,'px',5,380,0,160);});return 190;},
+    sqCapsule:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{for(let i=0;i<2;i++){shot(A,{x:t.x,y:t.y+(i?10:-10)},'cap',{c:k,size:9,ms:210,delay:i*120,trail:5,tc:k,tshape:'px',tsize:3});ring(t,k,8,60,8,300,210+i*120,1);burst(t.x,t.y,k,8,240,'px',4,360,0,210+i*120);}});return 330;},
+    sqKnock:(A,T,c,who)=>{const k=SQC(who,c);FLASH(k,.25,120);each(T,t=>{gridAt(t,k,90,420,120);line({x:t.x-60,y:t.y-60},{x:t.x+60,y:t.y+60},'#fff',12,260,140,1);line({x:t.x+60,y:t.y-60},{x:t.x-60,y:t.y+60},'#fff',12,260,190,1);ring(t,YL,10,96,10,380,200,1);burst(t.x,t.y-24,YL,8,140,'star',8,620,120,240);});return 260;},
+    sqPixels:(A,T,c,who)=>{const k=SQC(who,c);each(T,(t,i)=>{for(let j=0;j<8;j++)fall(t,'px',{c:j%2?k:'#fff',size:rand(4,8),dx:rand(-50,50),dy:rand(-20,20),delay:i*60+j*28,ms:200});burst(t.x,t.y,k,8,200,'px',4,340,0,240+i*60);});return 300;},
+    sqLock:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{ring(t,k,120,18,4,420);ring(t,'#fff',90,12,3,380,60);add({k:'fn',life:420,x:0,y:0,fade:.8,fn:(g,u)=>{g.save();g.strokeStyle=k;g.lineWidth=3;g.globalAlpha=u<.8?1:(1-u)/.2;const r=46-26*Math.min(1,u*1.4);g.beginPath();g.moveTo(t.x-r-14,t.y);g.lineTo(t.x-r+6,t.y);g.moveTo(t.x+r-6,t.y);g.lineTo(t.x+r+14,t.y);g.moveTo(t.x,t.y-r-14);g.lineTo(t.x,t.y-r+6);g.moveTo(t.x,t.y+r-6);g.lineTo(t.x,t.y+r+14);g.stroke();g.restore();}});line({x:A.x,y:A.y-10},t,k,22,320,330,1);line({x:A.x,y:A.y-10},t,'#fff',8,300,350,1);gridAt(t,k,70,360,380);burst(t.x,t.y,'#fff',14,340,'px',5,420,0,380);});return 400;},
+    sqSignal:(A,T,c,who)=>{const k=SQC(who,c);FLASH(k,.18,100);each(T,(t,i)=>{for(let j=0;j<5;j++)add({k:'rect',x:t.x-rand(40,90),y:t.y+rand(-60,40),w:rand(60,170),h:rand(3,9),c:j%2?k:'#fff',a:.85,life:260,delay:i*60+j*40,fade:.5});bolt({x:A.x,y:A.y-10},t,k,5,240,80+i*60);burst(t.x,t.y,k,8,200,'px',4,360,0,140+i*60);});return 280;},
+    sqOrbit:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{orbit(t,k,54,620);ring(t,'#8FB4FF',18,68,7,520,80,1);rise(t,'px',{n:5,c:k,size:4,w:40});});return 300;},
+    sqHappy:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{rise(t,'heart',{n:4,c:'#FF8FA3',size:8});rise(t,'plus',{n:5,c:GN,size:8});rise(t,'led',{n:5,c:k,size:5,w:40});ring(t,k,10,62,6,480,40,1);});return 300;},
+    sqSleepy:(A,T,c,who)=>{const k=SQC(who,c);DIM(.3);each(T,(t,i)=>{for(let j=0;j<4;j++)add({k:'rect',x:t.x-50,y:t.y-40+j*22,w:100,h:8,c:k,a:.7,life:360,delay:i*50+j*50,fade:.4});rise(t,'z',{n:4,c:PU,size:10,w:30,delay:160});});return 320;},
+    sqWink:(A,T,c,who)=>{const k=SQC(who,c);rise(A,'star',{n:3,c:YL,size:8});each(T,t=>{shot(A,t,'star',{c:k,size:14,ms:220,spin:18,trail:5,tc:k,tshape:'px',tsize:3});ring(t,k,8,74,9,340,220,1);burst(t.x,t.y,'#fff',10,260,'px',4,360,0,220);});return 240;},
+    sqBlock:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{add({k:'fn',life:560,x:0,y:0,fade:.7,fn:(g,u)=>{const s=40+40*Math.min(1,u*2);g.save();g.globalAlpha=u<.7?1:(1-u)/.3;g.strokeStyle=k;g.lineWidth=7;g.strokeRect(t.x-s,t.y-s,s*2,s*2);g.strokeStyle='#fff';g.lineWidth=2;g.strokeRect(t.x-s+6,t.y-s+6,s*2-12,s*2-12);g.restore();}});rise(t,'px',{n:8,c:k,size:5,w:46,v:70});});return 260;},
+    sqFocus:(A,T,c,who)=>{const k=SQC(who,c);each(T,t=>{rise(t,'up',{n:7,c:k,size:10,v:120});rise(t,'up',{n:3,c:YL,size:8,delay:120});ring(t,k,12,64,6,420,0,1);});return 280;},
+    sqGaze:(A,T,c,who)=>{const k=SQC(who,c);DIM(.3);each(T,t=>{for(const o of [-9,9]){line({x:A.x+o,y:A.y-30},{x:t.x+o,y:t.y},k,7,260,60,1);}arc(t,'#fff',{delay:200,w:14,r:58,a0:-2.6,sw:3.2});burst(t.x,t.y,RD,10,240,'drop',6,520,500,220);burst(t.x,t.y,k,10,260,'px',4,360,0,220);});return 260;},
+    sqOverdrive:(A,T,c,who)=>{const k=SQC(who,c);ultScreen(who,k);each(T,(t,i)=>{const d=540+i*90;gridAt(t,k,120,520,d);ring(t,k,10,120,14,420,d,1);ring(t,'#fff',8,90,6,320,d+40);burst(t.x,t.y,k,16,380,'px',6,520,0,d);burst(t.x,t.y,'#fff',10,300,'led',5,420,0,d);});return 620;},
+    sqPulse:(A,T,c,who)=>{const k=SQC(who,c);ultScreen(who,k);for(let i=0;i<4;i++)ring(A,k,20,260,8,620,480+i*110);each(T,(t,i)=>{const d=600+i*80;ring(t,k,10,96,10,380,d,1);burst(t.x,t.y,k,12,300,'led',5,460,0,d);});rise(A,'plus',{n:8,c:GN,size:9,w:70,delay:520});return 640;},
+    sqRim:(A,T,c,who)=>{const k=SQC(who,c);ultScreen(who,k);each(T,(t,i)=>{const d=520+i*90;orbit(t,k,70,640,d);ring(t,'#fff',10,96,10,380,d+260,1);burst(t.x,t.y,k,14,320,'px',5,460,0,d+260);});rise(A,'shield',{n:4,c:'#8FB4FF',size:10,w:60,delay:600});return 760;},
+    sqField:(A,T,c,who)=>{const k=SQC(who,c);ultScreen(who,k);each(T,(t,i)=>{const d=520+i*70;gridAt(t,k,140,640,d);ring(t,k,10,110,12,420,d+180,1);burst(t.x,t.y,'#fff',12,300,'led',5,440,0,d+180);});return 700;},
+    sqPhase:(A,T,c,who)=>{const k=SQC(who,c);ultScreen(who,k);const y=Math.max(...T.map(t=>t.y)),x0=Math.min(A.x,...T.map(t=>t.x))-60,x1=Math.max(...T.map(t=>t.x))+160;add({k:'fn',life:620,x:0,y:0,delay:480,fade:.85,fn:(g,u)=>{const x=x0+(x1-x0)*u;g.save();g.globalCompositeOperation='lighter';for(let r=-6;r<=6;r++)for(let q=0;q<5;q++){g.globalAlpha=(1-q/5)*.9;g.fillStyle=q?k:'#fff';g.fillRect(x-q*18,y-130+r*20,9,9);}g.restore();}});each(T,(t,i)=>{const d=600+i*90;ring(t,k,10,96,10,380,d,1);burst(t.x,t.y,k,14,340,'px',5,460,0,d);});return 700;},
     /* monster moves */
     mBoom:(A,T)=>{FLASH('#FFC94D',.3,70);each(T,t=>{shot(A,t,'dot',{c:'#FFF4D6',size:14,ms:180,arc:50});ring(t,'#F8A838',10,90,11,380,180,1);burst(t.x,t.y,'#F8A838',14,320,'dot',6,500,0,180);});return 200;},
     mDump:(A,T)=>{each(T,t=>{for(let i=0;i<3;i++)fall(t,'candle',{c:RD,size:26,dx:(i-1)*34,delay:i*60,ms:240});ring(t,RD,10,84,9,360,300);burst(t.x,t.y,BL,10,260,'drop',6,500,600,300);});return 320;},
@@ -243,6 +284,10 @@ const FX=(()=>{
     mCurse:(A,T)=>{each(T,t=>{shot(A,t,'dot',{c:PU,size:7,ms:260,arc:30,trail:3,tc:PU});burst(t.x,t.y,PU,6,110,'dot',4,520,-40,260);});return 260;},
     mCurseAll:(A,T)=>{each(T,t=>{burst(t.x,t.y,PU,9,110,'dot',4,620,-50,60);ring(t,PU,10,54,4,420,40);});return 200;},
   };
+  /* every Squeek move starts with a burst of its own light, and a Squeek lights up as it enters a battle */
+  function sqPre(A,c){ring(A,c,8,70,7,320,0,1);ring(A,'#fff',6,50,3,260,60);for(let i=0,m=n(12);i<m;i++)add({k:'p',shape:i%4?'px':'led',x:A.x+rand(-36,36),y:A.y+rand(-10,34),vx:rand(-24,24),vy:rand(-260,-130),drag:1.2,life:rand(380,600),size:rand(2.5,4.5),c:i%3?c:'#fff',delay:rand(0,90)});}
+  for(const k of Object.keys(P))if(k.startsWith('sq')){const f=P[k];P[k]=(A,T,c,who)=>{sqPre(A,SQC(who,c));return f(A,T,c,who);};}
+  P.sqEnter=(A,T,c,who)=>{const k=SQC(who,c);ring(A,k,10,118,10,560,0,1);ring(A,'#fff',8,86,5,440,90);for(let i=0,m=n(20);i<m;i++){const a=i/m*6.283;add({k:'p',shape:i%3?'px':'led',x:A.x+Math.cos(a)*96,y:A.y+Math.sin(a)*44,vx:-Math.cos(a)*170,vy:-Math.sin(a)*80,drag:1.4,life:560,size:4,c:i%3?k:'#fff',delay:i*14});}rise(A,'led',{n:7,c:k,size:5,w:44,v:120,delay:160});return 300;};
   /* element defaults for monsters */
   const EL={seed:{c:GN,s:'leaf'},dream:{c:PK,s:'moon'},spark:{c:YL,s:'spark'},water:{c:BL,s:'drop'},steel:{c:'#D5DCEC',s:'shard'}};
   ['seed','dream','spark','water','steel'].forEach(k=>{

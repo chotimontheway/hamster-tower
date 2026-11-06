@@ -4,7 +4,9 @@ const PREF_KEY='hamster-tower-prefs';
 let PREF={};
 try{PREF=JSON.parse(localStorage.getItem(PREF_KEY)||'{}')||{};}catch(e){}
 const savePref=()=>{try{localStorage.setItem(PREF_KEY,JSON.stringify(PREF));}catch(e){}};
-const artUri=id=>'art/'+id+'.webp?v='+__ART_V__;
+/* a Squeek has no baked picture: its picture is painted here from its own on-chain dots. Only pet_sq followed by a number is a Squeek, pet_squeektoshi is not */
+const SQ_PIC=/^pet_sq(\d{1,4})$/;
+const artUri=id=>{const m=SQ_PIC.exec(id);return m?SQ.picUri(+m[1]):'art/'+id+'.webp?v='+__ART_V__;};
 const $=(s,r)=>(r||document).querySelector(s);
 const $$=(s,r)=>[...(r||document).querySelectorAll(s)];
 const fmt=n=>Math.round(n).toLocaleString('en-US');
@@ -30,7 +32,7 @@ if(API_BASE){try{TICKET=localStorage.getItem(TICKET_KEY);}catch(e){}}
 const setTicket=t=>{TICKET=t;try{if(t)localStorage.setItem(TICKET_KEY,t);else localStorage.removeItem(TICKET_KEY);}catch(e){}};
 async function api(path,body){
   /* public data goes out without the ticket so the CDN can answer it */
-  const headers=Object.assign(body===undefined?{}:{'content-type':'application/json'},TICKET&&!/^\/api\/(rounds|leaderboard|config|live|daily|player)(\?|$)/.test(path)?{authorization:'Bearer '+TICKET}:{});
+  const headers=Object.assign(body===undefined?{}:{'content-type':'application/json'},TICKET&&!/^\/api\/(rounds|leaderboard|config|live|daily|player|squeek\/art|squeek\/pic|sqk)(\?|$)/.test(path)?{authorization:'Bearer '+TICKET}:{});
   const init=Object.assign({credentials:API_BASE?'omit':'same-origin',headers},body===undefined?{}:{method:'POST',body:JSON.stringify(body)});
   let last;
   for(let i=0;i<3;i++){
@@ -49,11 +51,30 @@ async function api(path,body){
 }
 function applyState(st){
   if(!G)G={};
-  for(const k of ['coins','top','team','chests','pityE','pityL','bags','sweepDay','gifts','battles','wins'])if(st[k]!==undefined)G[k]=st[k];
-  if(st.owned)G.owned=st.owned;
+  for(const k of ['coins','top','team','chests','pityE','pityL','bags','sweepDay','gifts','sqk','tp','quests','battles','wins'])if(st[k]!==undefined)G[k]=st[k];
+  if(st.owned){G.owned=st.owned;useSqueeks(G);Object.keys(G.owned).filter(isSq).forEach(k=>SQ.want(k.slice(2)));}
   if(st.items)G.items=st.items.map(a=>({uid:a[0],set:a[1],slot:a[2],rar:a[3],plus:a[4]}));
   if(st.foods)G.foods=st.foods;
   if(st.presets)G.presets=st.presets;
+}
+/* Squeeks of other players come with their traits, so their pets can be listed and drawn too */
+function noteSqueeks(list){for(const t of list||[])if(t&&t.sq&&isSq(t.id)){addSqueek(t.id.slice(2),t.sq.t,t.sq.lv);SQ.want(t.id.slice(2));}}
+/* when a Squeek's dots arrive, its pictures change. A battle draws its rigs only after they are here, so it is left alone */
+SQ.onLoad(()=>{if(G&&!BT&&UI.view!=='login')render();});
+const sqCol=id=>{const p=PETS[id];return p&&p.sq?p.sq.col:null;};
+/* the official API lists a wallet's Squeeks, in the wallet and deposited. The server then checks every one on the chain itself */
+async function squeekIds(wallet){
+  const out=[];let cursor=null;
+  for(let i=0;i<10;i++){
+    const r=await fetch(`https://api.squeekchain.com/v1/accounts/${wallet}?limit=100${cursor?'&cursor='+encodeURIComponent(cursor):''}`,window.AbortSignal&&AbortSignal.timeout?{signal:AbortSignal.timeout(15000)}:{});
+    if(!r.ok)throw new Error('api');
+    const j=await r.json();
+    if(j.status!=='available'||!Array.isArray(j.tokens))throw new Error('api');
+    for(const t of j.tokens){const n=Number(t&&t.tokenId);if(Number.isInteger(n)&&n>0&&n<10000)out.push(n);}
+    cursor=typeof j.nextCursor==='string'&&/^[A-Za-z0-9_-]+$/.test(j.nextCursor)?j.nextCursor:null;
+    if(!cursor||!j.tokens.length)break;
+  }
+  return out;
 }
 async function action(type,args){
   const j=await api('/api/action',Object.assign({type,requestId:newReqId()},args||{}));
@@ -84,7 +105,7 @@ const coinShort=n=>innerWidth>380||n<1e4?fmt(n):n<1e6?Math.floor(n/1e3)+'k':Math
 function topBar(){
   return `<header class="top gut"><div class="top-in wrap">
     <button class="brand" data-act="nav" data-v="tower" aria-label="Back to the tower">${pic('logo','')}<span>Hamster Tower</span></button>
-    <span class="pill num top-coin" title="Coins: ${fmt(G.coins)}">${coin}${coinShort(G.coins)}</span>
+    <span class="top-bal"><span class="pill num top-coin" title="Coins: ${fmt(G.coins)}">${coin}${coinShort(G.coins)}</span>${PLAYER&&PLAYER.wallet?(skBal(),`<span id="top-sqk">${sqkPill()}</span>`):''}</span>
     <span class="pill num top-floor" title="Floor ${G.top}">Floor ${G.top}</span>
     ${soundBtn()}${musicBtn()}
     ${PLAYER&&PLAYER.trial?'<button class="trial-btn" data-act="sheet" data-type="trial">Test<span class="wide"> panel</span></button>':''}${PLAYER&&PLAYER.wallet?`<span class="who"><button class="who-addr num" data-act="copy" data-t="${PLAYER.name}" title="Copy ${PLAYER.name}" aria-label="Copy wallet address ${PLAYER.name}">${shortAddr(PLAYER.name)}</button><button class="who-out" data-act="logout">Sign out</button></span>`:'<button class="trial-btn" data-act="sheet" data-type="guest">Guest</button>'}
@@ -104,8 +125,10 @@ function refreshSound(){
 function navBar(){
   const eq=equippedUids(G);
   const merge=G.items.some(it=>!eq.has(it.uid)&&canMerge(G,it));
-  const tabs=[['tower','Tower','nav_tower',canSweep(G,Date.now())],['team','Team','nav_team',G.team.some(id=>{const o=G.owned[id];return isFull(o)||feedPlan(G.foods,o.full,stomach(o.lv)).fills;})],['shop','Shop','nav_shop',G.coins>=BAG_COST||(!foodTotal()&&G.coins>=FOOD_BAGS[0].cost*3)],['items','Inventory','nav_items',merge||chestTotal(G)>0],['ranks','Ranks','nav_rank',false],['codex','Codex','nav_codex',false]];
-  return `<nav class="nav gut" aria-label="Screens"><div class="nav-in">${tabs.map(([v,l,a,d])=>`<button data-act="nav" data-v="${v}" class="${UI.view===v||(v==='tower'&&UI.view==='arena')?'on':''}"${UI.view===v?' aria-current="page"':''}>${pic(a,'')}${l}${d?'<i class="dot" aria-hidden="true"></i>':''}</button>`).join('')}</div></nav>`;
+  const tabs=[['tower','Tower','nav_tower',canSweep(G,Date.now())],['team','Team','nav_team',G.team.some(id=>{const o=G.owned[id];return isFull(o)||feedPlan(G.foods,o.full,stomach(o.lv)).fills;})],['shop','Shop','nav_shop',G.coins>=BAG_COST||(!foodTotal()&&G.coins>=FOOD_BAGS[0].cost*3)],['items','Inventory','nav_items',merge||chestTotal(G)>0||sqkOf(G).box>0||sqkOf(G).pouch.length>0],['quests','Quests','nav_quest',questClaimable()||!qToday()],['ranks','Ranks','nav_rank',false],['codex','Codex','nav_codex',patchNew()]];
+  /* seven tabs on a narrow phone: Inventory shortens to Items */
+  const label=l=>l==='Inventory'?'<span class="nv-l">Inventory</span><span class="nv-s">Items</span>':l;
+  return `<nav class="nav gut" aria-label="Screens"><div class="nav-in">${tabs.map(([v,l,a,d])=>`<button data-act="nav" data-v="${v}" aria-label="${l}" class="${UI.view===v||(v==='tower'&&UI.view==='arena')||(v==='quests'&&UI.view==='qadmin')?'on':''}"${UI.view===v?' aria-current="page"':''}>${pic(a,'')}${label(l)}${d?'<i class="dot" aria-hidden="true"></i>':''}</button>`).join('')}</div></nav>`;
 }
 /* x, y, seconds, drift x, drift y: a few fireflies over the picture, opacity and transform only */
 const FLIES=[[8,62,5,40,-34],[17,78,7,-30,-46],[26,54,6,34,30],[33,84,8,46,-28],[44,70,5.5,-36,-40],[56,86,7.5,30,-52],[64,60,6.5,-44,26],[72,80,5,38,-30],[81,56,8,-30,-44],[90,74,6,-42,34],[12,40,9,30,24],[86,34,8.5,-26,30]];
@@ -159,6 +182,8 @@ async function pickWallet(i){
     if(!live())return;
     const v=await api('/api/auth/verify',{ticket:n.ticket,signature});
     if(!live())return;
+    /* the same wallet sends SQK transactions later, also after a reload */
+    SK.eth=eth;SK.me=null;SK.meAt=0;SK.scanned=false;questReset();PREF.wallet=w.info.rdns||w.info.name;savePref();
     UI.sheet=null;UI.walletWait=null;
     await afterLogin();
     if(wasGuest)toast(v.linked?'Saved. This wallet now holds your progress.':'This wallet already has a save, so that one is loaded.');
@@ -186,13 +211,18 @@ function sheetGuest(){
     <div class="btns"><button class="btn warn sm" data-act="logout">Sign out and lose this save</button></div>`;
 }
 const setBg=m=>{document.documentElement.dataset.bg=m;};
-/* when a phone has no room for the whole top bar, the floor label shortens, then the floor and the logo give way, so no button gets squeezed */
+/* when a screen has no room for the whole top bar, the coins and the wallet's SQK stack, the floor label shortens, then the floor and the
+   logo give way, and last the gaps and paddings tighten, so no button gets squeezed */
 function fitTop(){
   const b=$('.top-in');if(!b)return;
   const over=()=>b.scrollWidth>b.clientWidth+1,f=$('.top-floor',b),br=$('.brand',b);
+  b.classList.remove('bal-stack','top-tight');
   if(br)br.style.display='';
-  if(f){f.style.display='';f.textContent='Floor '+G.top;if(over())f.textContent='F'+G.top;if(over())f.style.display='none';}
+  if(f){f.style.display='';f.textContent='Floor '+G.top;}
+  if(over()&&$('.top-sqk',b))b.classList.add('bal-stack');
+  if(f){if(over())f.textContent='F'+G.top;if(over())f.style.display='none';}
   if(br&&over())br.style.display='none';
+  if(over())b.classList.add('top-tight');
 }
 function render(){
   tipHide();
@@ -205,7 +235,7 @@ function render(){
     return;
   }
   const st=$('.sheet')?$('.sheet').scrollTop:0;
-  const V={tower:viewTower,team:viewTeam,shop:viewShop,items:viewInv,ranks:viewRanks,codex:viewCodex,result:viewResult,arena:viewArena}[UI.view];
+  const V={tower:viewTower,team:viewTeam,shop:viewShop,items:viewInv,ranks:viewRanks,codex:viewCodex,result:viewResult,arena:viewArena,quests:viewQuests,qadmin:viewQAdmin}[UI.view];
   $('#app').innerHTML=topBar()+`<main class="main gut"><div class="wrap stack">${V()}</div></main>`+(UI.view==='result'?'':navBar())+(UI.sheet?sheetHTML():'');
   fitTop();
   const sh=$('.sheet');
@@ -225,7 +255,7 @@ const openerKey=t=>(t.classList[0]?'.'+t.classList[0]:'')+Object.keys(t.dataset)
 function focusOpener(){if(UI.opener&&!activeDialog()){const el=$(UI.opener);if(el)el.focus({preventScroll:true});}}
 function sheetHTML(){
   const s=UI.sheet;
-  const inner={winners:sheetWinners,floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial,wallets:sheetWallets,guest:sheetGuest,daily:sheetDaily,player:sheetPlayer,prize:sheetPrize,share:sheetShare,prizes:sheetPrizes,arena:sheetArena,arenaPrizes:sheetArenaPrizes}[s.type](s);
+  const inner={winners:sheetWinners,floor:sheetFloor,pet:sheetPet,gear:sheetGear,item:sheetItem,sweep:sheetSweep,trial:sheetTrial,wallets:sheetWallets,guest:sheetGuest,daily:sheetDaily,player:sheetPlayer,prize:sheetPrize,share:sheetShare,prizes:sheetPrizes,arena:sheetArena,arenaPrizes:sheetArenaPrizes,sqk:sheetSqk}[s.type](s);
   return `<div class="sheet-wrap" data-act="close-bg"><div class="sheet s-${s.type}" role="dialog" aria-modal="true"><button class="x" data-act="close" aria-label="Close">×</button>${inner}</div></div>`;
 }
 
@@ -252,6 +282,7 @@ function viewTower(){
       ${pic('wheel_big','Squeektoshi on the wheel','hero-pet')}
     </section>
     ${liveStrip()}
+    ${patchCard()}
     ${dailyCard()}
     ${arenaCard()}
     <section class="sweep">
@@ -497,15 +528,21 @@ async function enterBattle(node,opts){
   opts=opts||{};
   /* practice runs on this device and counts for nothing. A real battle is played on the server */
   const r=opts.sandbox?startBattle(G,node,FLOORS,opts):opts.daily?await api('/api/daily/start',{}):opts.arena?await api('/api/arena/start',{floor:opts.arena,run:arenaClaim()}):await api('/api/fight/start',{floor:node.floor});
+  /* a Squeek on either side is drawn from its dots, so they are fetched before the battle is drawn */
+  ensureSqueeks(r.B);
+  const sqIds=r.B.units.filter(u=>u.sq).map(u=>u.sq.id);
+  if(sqIds.length)await Promise.race([SQ.load(sqIds),new Promise(z=>setTimeout(z,6000))]);
   const minMs=r.minMs||0;
   BT={B:r.B,node:r.node||node,sandbox:!!opts.sandbox,daily:!!opts.daily,arena:!!opts.arena,holder:r.holder||null,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token:r.token||null,turns:0,minMs,nextAt:Date.now()+minMs,sending:null,end:null};
   UI.view='battle';UI.sheet=null;
   tipHide();renderBattle();window.scrollTo(0,0);
+  /* a Squeek lights up as the battle opens */
+  const me=BT;setTimeout(()=>{if(BT!==me)return;for(const u of me.B.units)if(u.sq&&spr(u.id))FX.play('sqEnter',vpCenter(u.id),[],sqCol(u.ref),MOT.get(u.id));},250);
   if(G.battles<4)logLine('Pick a skill for each pet, tap an enemy to choose a target, then press Fight.');
   startPlan();
 }
 function unitHTML(s){
-  return `<div class="unit ${s.side}${s.boss?' boss':''}" id="u-${s.id}" data-tip="u:${s.id}" data-act="${s.side==='e'?'target':'focus'}" data-id="${s.id}" role="button" tabindex="0" aria-label="${s.side==='e'?'Target '+s.n:'Pick a skill for '+s.n}">
+  return `<div class="unit ${s.side}${s.boss?' boss':''}${s.sq?' sq':''}" id="u-${s.id}" data-tip="u:${s.id}" data-act="${s.side==='e'?'target':'focus'}" data-id="${s.id}" role="button" tabindex="0" aria-label="${s.side==='e'?'Target '+s.n:'Pick a skill for '+s.n}">
     <div class="intent"></div>
     <div class="uname">${pic('el_'+s.el,ELS[s.el].n)}<span>${s.n}</span></div>
     <div class="bar hp"><i></i><em></em></div>
@@ -650,7 +687,7 @@ function planRow(u){
     const state=s.kind==='guard'?`-${Math.round((1-TUNE.brace)*100)}%`:s.kind==='ult'?(u.nrg>=100?'Full Rage':`Rage ${u.nrg}%`):(s.kind==='skill'&&u.st.silence?'Silenced':cd>0?`Wait ${cd}`:s.kind==='basic'?'Basic':'Ready');
     return `<button class="sk${s.kind==='ult'?' ult':''}${s.kind==='guard'?' gd':''}${on?' on':''}" data-act="pick" data-u="${u.id}" data-i="${i}" data-tip="sk:${u.id}:${i}"${ok?'':' disabled'} id="sk-${u.id}-${i}"><b>${s.n}</b><em>${state}</em></button>`;
   }).join('');
-  return `<div class="plan-row${!BT.playing&&BT.focus===u.id?' focus':''}"><button class="pl-head" data-act="focus" data-id="${u.id}" data-tip="u:${u.id}">${pic('pet_'+u.ref,p.n)}<span><b>${p.n}</b><small class="num">Speed ${su.spd}<i class="hp-t" style="font-style:normal">, HP ${fmt(su.hp)}</i></small></span></button><div class="pl-skills">${skills}</div></div>`;
+  return `<div class="plan-row${!BT.playing&&BT.focus===u.id?' focus':''}${p.sq?' sq':''}"><button class="pl-head" data-act="focus" data-id="${u.id}" data-tip="u:${u.id}">${pic('pet_'+u.ref,p.n)}<span><b>${p.n}</b><small class="num">Speed ${su.spd}<i class="hp-t" style="font-style:normal">, HP ${fmt(su.hp)}</i></small></span></button><div class="pl-skills">${skills}</div></div>`;
 }
 function renderPanel(){
   const box=$('#panel');if(!box)return;
@@ -702,7 +739,7 @@ async function fxUse(e){
   if(e.kind==='ult'){
     const s=uById(BT.B,e.who),f=$('#field');
     if(f){const b=document.createElement('div');b.className='ultb';b.innerHTML=`${pic('pet_'+s.ref,'')}<strong>${e.name}</strong>`;f.appendChild(b);setTimeout(()=>b.remove(),560/speed());}
-    flash(e.fx==='goldwheel'?'#FFC94D':ELS[e.el].c,.28);
+    flash(e.fx==='goldwheel'?'#FFC94D':sqCol(s.ref)||ELS[e.el].c,.28);
     const ua=who;if(ua&&ua.kind==='ham'){ua.away=true;MOT.tw(ua.p,{sy:.84,sx:1.12,armF:-150,wF:150,head:-8,brow:14},360,'back');}
     if(e.fx==='goldwheel')FX.play('goldcharge',vpCenter(e.who),[],ELS[e.el].c,ua);
     await wait(500);
@@ -713,7 +750,7 @@ async function fxUse(e){
   if(a){
     if(a.kind==='ham'){
       if(e.kind==='guard'){a.away=false;MOT.guardUp(a);}
-      else if(e.melee&&t0){await MOT.strike(a,t0,ELS[e.el].c==='#A8BAFF'?'#E6EEFF':ELS[e.el].c);if(BT!==me)return;A=a.tip();}
+      else if(e.melee&&t0){await MOT.strike(a,t0,sqCol(a.key)||(ELS[e.el].c==='#A8BAFF'?'#E6EEFF':ELS[e.el].c));if(BT!==me)return;A=a.tip();}
       else if(e.self){a.away=true;MOT.tw(a.p,{armF:-150,wF:150,lean:-3,sy:1.05,sx:.97},150,'back');}
       else{a.away=true;const k=a.toolKind;if(k==='shoot'){await MOT.shoot(a);}else{await MOT.castUp(a);await MOT.castFire(a);}if(BT!==me)return;A=a.tip();}
     }else{
@@ -724,6 +761,7 @@ async function fxUse(e){
   }
   const T=tg.map(vpCenter);
   const d=FX.play(e.fx,A,T,ELS[e.el].c,a);
+  if(e.kind==='ult'&&a&&a.d&&a.d.sq)setTimeout(()=>{if(BT===me)shakeStage();},Math.max(0,d-80)/speed());
   if(e.fx==='goldwheel'){SND.play('go');SND.play('coins');}
   await wait(e.melee?Math.min(d,130):d);
   if(BT===me&&a&&a.kind!=='ham'&&!e.melee)MOT.foeCalm(a);
@@ -877,6 +915,8 @@ function viewResult(){
   const all=w.chests.slice();if(w.treasure)all.push(w.treasure.tier);
   const cards=[chestCards(all)];
   if(w.gift)cards.push(`<div class="rw gift" style="animation-delay:240ms">${pic('pet_'+w.gift,PETS[w.gift].n)}<b>${w.giftStar?PETS[w.gift].n+' gains a star!':PETS[w.gift].n+(G.team.includes(w.gift)?' joins the team!':' joins your pets!')}</b><small>A gift for climbing</small></div>`);
+  if(w.quests&&w.quests.length)cards.push(`<div class="rw qdone" style="animation-delay:360ms">${pic('nav_quest','Quest')}<b>${w.quests.length>1?w.quests.length+' quests done':'Quest done'}</b><small>${w.quests.map(questText).join(', ')}</small><small class="num">Claim +${fmt(w.quests.reduce((s,x)=>s+(x.tp||0),0))} TP in Quests</small></div>`);
+  if(w.pouches&&w.pouches.length){const n=w.pouches.length;cards.push(`<div class="rw sqkp" style="animation-delay:300ms">${pic('pouch_sqk','SQK pouch')}<b>${n>1?n+' SQK pouches':'An SQK pouch'}</b><small>${n>1?'For the boss floors you cleared':'For clearing a boss floor'}, open ${n>1?'them':'it'} in your inventory</small></div>`);}
   const nextF=r.floor+1,hasNext=w.first&&nextF<=FLOORS.length;
   return `<section class="res win">${pic('win_pet','')}<h1>${w.first?`Floor ${r.floor} cleared!`:`Floor ${r.floor} won again`}</h1>
     <div class="big-coin num">${coin}+${fmt(w.coins)}</div>
@@ -1009,16 +1049,27 @@ function viewTeam(){
     <div class="slots">${slots}</div>
     ${res.length?`<div class="res-chips">${res.map(r=>`<span class="res-chip"><b>${r.n}.</b> ${r.d}</span>`).join('')}</div>`:'<p class="note">Teams with 3 different elements, or with both a Tank and a Support, get bonuses.</p>'}
     <section class="box"><h2>Saved teams</h2><p class="note">Save this team and what it wears, then change for a floor in one tap. Gear in a saved team is safe from mass selling and merging.</p><div class="presets">${presetRows()}</div></section>
-    <div class="sec-t">Your pets (${ids.length} of ${PETS_LIST.length})</div>
+    ${squeekBox(ids.filter(isSq))}
+    <div class="sec-t">Your pets (${ids.filter(id=>!isSq(id)).length} of ${PETS_LIST.length}${ids.some(isSq)?`, and ${ids.filter(isSq).length} Squeek${ids.filter(isSq).length>1?'s':''}`:''})</div>
     <div class="pgrid">${ids.map(id=>petCard(id,true)).join('')}</div>`;
+}
+/* SQUEEKS: real Squeek NFTs join as pets. The page lists them from the official API, the server checks each one on the chain */
+function squeekBox(have){
+  const wallet=PLAYER&&PLAYER.wallet,held=have.filter(id=>sqUsable(G,id));
+  return `<section class="box sq-box"><h2>Squeeks</h2>
+    <p class="note">A Squeek NFT in your wallet or deposited in Staking fights as a pet, drawn from its own on-chain picture. Its traits pick its element, role and skills, and each real merge level counts as a star. It is a little stronger than a Legendary. One Squeek per team. Nothing is sent and nothing is approved, the game only reads the chain.</p>
+    ${wallet?`<div class="btns"><button class="btn sm" data-act="sq-sync"${UI.sqBusy?' disabled':''}>${UI.sqBusy?'Checking the chain...':have.length?'Check my Squeeks again':'Find my Squeeks'}</button></div>`:'<p class="note"><b>Sign in with a wallet that holds a Squeek to bring it in.</b></p>'}
+    ${UI.sqMsg?`<p class="note sq-msg">${esc(UI.sqMsg)}</p>`:''}
+    ${have.length&&!held.length?'<p class="note">Your saved Squeeks are no longer in this wallet. They keep their levels and gear and come back if they return.</p>':''}
+  </section>`;
 }
 function petCard(id,owned){
   const p=PETS[id],o=G.owned[id];
   const inTeam=G.team.indexOf(id)>=0;
   return `<button class="pcard r-${p.rar}${o?'':' none'}" data-act="pet" data-id="${id}">
-    ${inTeam&&owned?'<span class="in-team">Team</span>':''}
+    ${inTeam&&owned?'<span class="in-team">Team</span>':o&&o.sq&&o.sq.gone?'<span class="in-team gone">Left wallet</span>':''}
     <span class="corner">${picL('el_'+p.el,ELS[p.el].n)}${picL('role_'+p.role,ROLES[p.role].n)}</span>
-    <span class="pstage" style="background:${ELS[p.el].stage}">${o&&hasGear(id)?`<span class="rigbox" data-rig="${id}" data-still="1"></span>`:picL('pet_'+id,p.n,'pp')}</span>
+    <span class="pstage" style="background:${ELS[p.el].stage}">${o&&hasGear(id)?`<span class="rigbox" data-rig="${id}" data-still="1"></span>`:picL('pet_'+id,p.n,'pp')}${p.sq?'<span class="sq-chip">NFT</span>':''}</span>
     <b>${p.n}</b>
     ${o?`<small class="num">Level ${o.lv}</small><span class="stars" aria-label="${o.star} stars">${stars(o.star)}</span>${miniMeters(o)}`:`<small>${RARS[p.rar].n}, not owned</small>`}
   </button>`;
@@ -1061,7 +1112,10 @@ function sheetPet(s){
   const setLines=Object.keys(c).filter(k=>c[k]>=2).map(k=>`<div class="note"><b>${SETS[k].n} x${c[k]}:</b> ${SETS[k].p2}${c[k]>=4?' '+SETS[k].p4:''}</div>`).join('');
   const brs=BRANCHES[p.role].map(([bid,n,d])=>`<button class="bopt${o.branch===bid?' on':''}" data-act="branch" data-id="${id}" data-b="${bid}"${o.star<3?' disabled':''}><b>${n}</b>${d}</button>`).join('');
   let teamBtns;
+  const otherSq=isSq(id)?G.team.find(t=>isSq(t)&&t!==id):null;
   if(inTeam)teamBtns=G.team.length>1?`<button class="btn ghost sm" data-act="team-out" data-id="${id}">Remove from team</button>`:'<small>The team needs at least 1 pet.</small>';
+  else if(!sqUsable(G,id))teamBtns='<small>This Squeek has left your wallet.</small>';
+  else if(otherSq)teamBtns=`<button class="btn ghost sm" data-act="team-swap" data-id="${id}" data-out="${otherSq}">Replace ${PETS[otherSq].n}</button><small>One Squeek per team.</small>`;
   else if(G.team.length<3)teamBtns=`<button class="btn sm" data-act="team-in" data-id="${id}">Add to team</button>`;
   else teamBtns=G.team.map(t=>`<button class="btn ghost sm" data-act="team-swap" data-id="${id}" data-out="${t}">Replace ${PETS[t].n}</button>`).join('');
   return `<div class="r-${p.rar}" style="display:contents"><h2>${p.n}</h2>
@@ -1069,13 +1123,24 @@ function sheetPet(s){
     <div class="p-stats"><div><span>HP</span><b>${fmt(st.hp)}</b></div><div><span>Bite</span><b>${fmt(st.atk)}</b></div><div><span>Armor</span><b>${fmt(st.def)}</b></div><div><span>Speed</span><b>${st.spd}</b></div><div><span>Crit</span><b>${dec(st.crit)}%</b></div></div>
     <div class="btns">${teamBtns}</div>`)}
     ${careHTML(id,o)}
-    <p class="note">Duplicate pets from blind bags add a star, up to 5. Each star adds 12% stats.</p>
+    ${p.sq?squeekInfo(p,o):'<p class="note">Duplicate pets from blind bags add a star, up to 5. Each star adds 12% stats.</p>'}
     <div class="sec-t">Skills</div>${skills}
     <div class="sec-t">Gear</div>
     <div class="slots4">${Object.keys(SLOTS).map(k=>{const it=itemByUid(G,o.gear[k]);return it?`<button class="gslot r-${it.rar}" data-act="gear" data-id="${id}" data-slot="${k}"><span class="i-pic">${pic(gearArt(it),itemName(it))}${it.plus?`<em>+${it.plus}</em>`:''}</span>${SETS[it.set].n}</button>`:`<button class="gslot" data-act="gear" data-id="${id}" data-slot="${k}"><span class="ph" aria-hidden="true">+</span>${SLOTS[k].n}</button>`;}).join('')}</div>
     ${setLines}
     <div class="sec-t">3-star branch${o.star<3?` (needs 3 stars, has ${o.star})`:''}</div>
     <div class="branch">${brs}</div></div>`;
+}
+/* what a Squeek's traits gave it, its real picture on request, and where it stands on the chain */
+function squeekInfo(p,o){
+  const t=p.sq.t,real=UI.sqReal&&UI.sqReal.id===p.sq.id?UI.sqReal.uri:null;
+  const rows=[['Palette',t.pal,`${ELS[p.el].n} element`],['Body Glyph',t.body,`${ROLES[p.role].n} role`],['Eyes',t.eye,`Skill: ${p.skills[1].n}`],['Illumination',t.ill,`Rage skill: ${p.skills[2].n}`]];
+  return `<div class="sec-t">From the chain</div>
+    <div class="sq-info">
+      <div class="sq-real">${real?`<img src="${real}" alt="Squeek #${p.sq.id} on-chain picture">`:`<button class="btn ghost sm" data-act="sq-real" data-id="${p.sq.id}">Show the on-chain picture</button>`}</div>
+      <ul class="sq-traits">${rows.map(r=>`<li><span>${r[0]}</span><b>${esc(r[1]||'')}</b><small>${r[2]}</small></li>`).join('')}</ul>
+    </div>
+    <p class="note">Merge level ${p.sq.lv}, read from the chain, counts as ${o.star} star${o.star>1?'s':''}. Each star above the first adds ${pct(SQ_STAR)} stats, and a branch opens at merge level 3. ${o.sq&&o.sq.staked?'It is deposited in Staking.':'It is in your wallet.'}${o.sq&&o.sq.gone?' <b>This Squeek has left your wallet.</b> It keeps its level and gear here and comes back if it returns.':''}</p>`;
 }
 function itemEffect(it){
   const v=itemVal(it);
@@ -1257,6 +1322,7 @@ async function loadArena(){
     const asked=Date.now()/1000,me=await api('/api/arena/me');
     /* the player's clock may be off, the countdown goes by the server's */
     if(me.gate&&me.gate.now)UI.skew=me.gate.now-(asked+Date.now()/1000)/2;
+    noteSqueeks(me.def&&me.def.team);for(const t of me.targets||[])noteSqueeks(t&&t.def&&t.def.team);
     UI.arena={me};
     const el=$('#arena-card');
     if(el&&!el.contains(document.activeElement))el.outerHTML=arenaCard();
@@ -1266,7 +1332,7 @@ async function loadArena(){
   }catch(e){if(e&&e.status===401)fail(e);}
 }
 async function loadArenaBoard(){
-  try{UI.arenaBoard=await api('/api/arena');if(UI.view==='ranks'&&UI.rankTab==='arena'&&!UI.sheet)render();}catch(e){}
+  try{UI.arenaBoard=await api('/api/arena');for(const r of UI.arenaBoard.held||[])noteSqueeks(r.team);if(UI.view==='ranks'&&UI.rankTab==='arena'&&!UI.sheet)render();}catch(e){}
 }
 /* a chest for each finished day the player fought on, paid the next time they come back */
 async function claimArena(){
@@ -1399,7 +1465,7 @@ function viewRanksToday(){
 /* the reward icon on each board. It opens the wallets in line, guests are skipped */
 function rewardCard(board){
   const guest=PLAYER&&!PLAYER.wallet,climb=board==='climb';
-  const line=climb?'The top 10 wallets split the SQK that 1 Squeek earns in one day at Squeekchain mainnet.':'When the day ends, the top 10 wallets get a chest, blind bags and food bags.';
+  const line=climb?'The top 10 wallets split the SQK that 1 Squeek earns in one week at Squeekchain mainnet.':'When the day ends, the top 10 wallets get a chest, blind bags and food bags.';
   return `<section class="sweep prize"><button class="prize-ic" data-act="winners" data-board="${board}" aria-label="See the wallets in line for the reward">${pic(climb?'medal_1':'chest_5','')}</button><div><h2>Top 10 ${climb?'prize':'rewards'}</h2><p>${line}${guest?' You are playing as a guest: sign in with a wallet to qualify.':''}</p></div><div class="btns"><button class="btn" data-act="winners" data-board="${board}">Winners</button>${climb?'<button class="btn ghost" data-act="sheet" data-type="prize">Rules</button>':''}</div></section>`;
 }
 const prizeLine=p=>`${CHESTS[p.chest].n}, ${p.bags} blind bag${p.bags>1?'s':''}, ${p.food} food bags`;
@@ -1410,7 +1476,7 @@ function sheetWinners(s){
   const save=PLAYER&&!PLAYER.wallet?'<div class="btns"><button class="btn" data-act="guest-save">Save this guest with a wallet</button></div>':'';
   if(s.board==='climb'){
     const rows=(UI.ranks&&UI.ranks.l.winners)||[],right=r=>`Floor ${fmt(r.top)}<small>${agoText(r.at)}</small>`;right.tag='c';
-    return `<h2>Top 10 prize</h2><p>The top 10 wallets split the SQK that 1 Squeek earns in one day at Squeekchain mainnet. Guests stay on the board, but only connected wallets count, so the next wallet moves up.</p>
+    return `<h2>Top 10 prize</h2><p>The top 10 wallets split the SQK that 1 Squeek earns in one week at Squeekchain mainnet. Guests stay on the board, but only connected wallets count, so the next wallet moves up.</p>
       <div class="sec-t">In line right now</div>${winnerList(rows,right)}
       <p class="note">This list can still change. The board is read on a date announced beforehand, and every climb is checked by hand before paying.</p>
       <div class="btns"><button class="btn ghost" data-act="sheet" data-type="prize">Rules</button></div>${save}`;
@@ -1425,10 +1491,10 @@ function sheetWinners(s){
 }
 function sheetPrize(){
   return `<h2>Top 10 prize</h2>
-    <p>The top 10 wallets on the leaderboard split the SQK that 1 Squeek earns in one day at Squeekchain mainnet.</p>
+    <p>The top 10 wallets on the leaderboard split the SQK that 1 Squeek earns in one week at Squeekchain mainnet.</p>
     <ol class="how">
       <li>The prize comes personally from the maker of this game. It is not part of the game and does not come from Squeekchain.</li>
-      <li>The amount depends on what 1 Squeek earns that day, so it is not fixed.</li>
+      <li>The amount depends on what 1 Squeek earns that week, so it is not fixed.</li>
       <li>The board is read on a date announced beforehand. Until then nothing is final.</li>
       <li>Only wallets can win. Guests stay on the board, but the count skips them and the next wallet moves up.</li>
       <li>Sign in with a wallet to qualify. A guest save moves to the wallet, unless that wallet already has its own save.</li>
@@ -1440,7 +1506,7 @@ function sheetPrize(){
 }
 /* A CLIMBER'S PUBLIC PAGE */
 function dropName(x){
-  const from=x.source==='bag'?'a Blind Bag':'a '+(CHESTS[+x.source.split(' ')[1]]||{n:'chest'}).n;
+  const from=x.source==='bag'?'a Blind Bag':x.source==='sqk'?'an SQK Chest':'a '+(CHESTS[+x.source.split(' ')[1]]||{n:'chest'}).n;
   if(x.kind==='pet')return `${PETS[x.ref]?PETS[x.ref].n:x.ref}, from ${from}`;
   const [set,slot]=x.ref.split(' ');
   return `${SETS[set]?SETS[set].n:set} ${SLOTS[slot]?SLOTS[slot].n:slot}, from ${from}`;
@@ -1568,6 +1634,7 @@ function viewShop(){
   const epic=BAG_RATES.filter(r=>r[1]==='e'||r[1]==='l').reduce((a,r)=>a+r[2],0),leg=BAG_RATES.filter(r=>r[1]==='l').reduce((a,r)=>a+r[2],0);
   const low=G.owned[lowestTeamPet()].lv,foods=foodTotal();
   return `<div class="head-row"><h1>Shop</h1>${fastToggle()}</div>
+    ${sqkShopCard()}
     <section class="box"><div class="head-row"><h2 style="flex:1 1 auto">Food bags</h2><button class="chipb" data-act="to-pantry">Pantry: ${fmt(foods)} food${foods===1?'':'s'}</button></div>
       <p class="note">Each bag opens into one food. Feed a hamster to 100% and it can run the wheel for XP. Bigger hamsters need more food, so buy the bag that suits their level.</p>
       <div class="shop-grid">${FOOD_BAGS.map((b,t)=>foodBagCard(t,low)).join('')}</div>
@@ -1585,7 +1652,7 @@ function viewShop(){
       <p class="note">${dec(epic)}% total for Epic or better, about one every ${Math.round(100/epic)} bags. Legendary alone is ${dec(leg)}%.</p>
     </section>
     <section class="box"><h2>Coin rules</h2>
-      <ul class="stack" style="gap:6px;font-size:13.5px;color:var(--soft)"><li>Coins exist only in the game. No top-ups, no tokens or NFTs, no trading.</li>
+      <ul class="stack" style="gap:6px;font-size:13.5px;color:var(--soft)"><li>Coins exist only in the game. They can never be bought, sold or traded. The SQK Chest is the only thing sold for SQK.</li>
       <li>A duplicate pet gains 1 star. At 5 stars it converts to 1,000 coins.</li>
       <li>You opened ${G.bags} bags. After ${PITY_E} bags without an Epic, the next one is guaranteed Epic. After ${PITY_L} without a Legendary, the next one is guaranteed Legendary.</li></ul>
     </section></div>`;
@@ -1765,7 +1832,7 @@ function invFood(){
 }
 function invChests(){
   const total=chestTotal(G);
-  return `<section class="box"><div class="head-row"><h2 style="flex:1 1 auto">Your chests</h2><button class="btn" data-act="chest-all"${total?'':' disabled'}>Open all ${total||''}</button>${fastToggle()}</div>
+  return `${sqkInvBox()}<section class="box"><div class="head-row"><h2 style="flex:1 1 auto">Your chests</h2><button class="btn" data-act="chest-all"${total?'':' disabled'}>Open all ${total||''}</button>${fastToggle()}</div>
       <div class="chest-grid">${CHESTS.map((c,t)=>`<div class="chest-card${G.chests[t]?'':' empty'}">${pic('chest_'+(t+1),c.n)}<b>${c.n}</b><span class="num">x${G.chests[t]}</span>
         <div class="btns"><button class="btn sm" data-act="chest" data-t="${t}" data-n="1"${G.chests[t]?'':' disabled'}>Open</button><button class="btn ghost sm" data-act="chest" data-t="${t}" data-n="${Math.min(10,G.chests[t]||0)}"${G.chests[t]>1?'':' disabled'}>x${Math.max(2,Math.min(10,G.chests[t]||0))}</button></div></div>`).join('')}</div>
       ${total?'':'<p class="note">No chests yet. Clear new floors, replay old ones, or use Sweep to get chests.</p>'}
@@ -1819,8 +1886,8 @@ function sheetItem(s){
 
 /* CODEX */
 function viewCodex(){
-  const tabs=[['pet','Pets'],['mon','Monsters'],['boss','Bosses'],['react','Reactions'],['rule','Rules'],['food','Food and wheel'],['wx','Weather and maps'],['gear','Gear sets']];
-  const c={pet:codexPets,mon:codexMons,boss:codexBoss,react:codexReact,rule:codexRules,food:codexFood,wx:codexWx,gear:codexGear}[UI.tab]();
+  const tabs=[['patch','Patch notes'],['pet','Pets'],['mon','Monsters'],['boss','Bosses'],['react','Reactions'],['rule','Rules'],['food','Food and wheel'],['wx','Weather and maps'],['gear','Gear sets']];
+  const c={patch:codexPatches,pet:codexPets,mon:codexMons,boss:codexBoss,react:codexReact,rule:codexRules,food:codexFood,wx:codexWx,gear:codexGear}[UI.tab]();
   return `<div class="head-row"><h1>Codex</h1></div>
     <div class="tabs" role="group" aria-label="Codex sections">${tabs.map(([k,l])=>`<button class="chipb${UI.tab===k?' on':''}" data-act="tab" data-k="${k}">${l}</button>`).join('')}</div>${c}`;
 }
@@ -1900,7 +1967,7 @@ function sheetTrial(){
   return `<h2>Test panel</h2>
     <p class="note">Only test wallets see this panel, so you can reach all the content quickly. It changes this account for real. On the boards a test wallet shows as Dev, without its address, and is not ranked.</p>
     <div class="sec-t">Add resources</div>
-    <div class="btns"><button class="btn sm" data-act="tr-coins">Add 10,000 coins</button><button class="btn sm" data-act="tr-chests">Add 38 chests</button><button class="btn sm" data-act="tr-food">Add 10 of every food</button><button class="btn sm" data-act="tr-pets">Get all ${PETS_LIST.length} pets</button><button class="btn sm" data-act="tr-sweep">Reset Sweep</button><button class="btn sm" data-act="tr-daily">Reset the Daily Challenge</button><button class="btn sm" data-act="tr-arena">Reset Arena tries</button></div>
+    <div class="btns"><button class="btn sm" data-act="tr-coins">Add 10,000 coins</button><button class="btn sm" data-act="tr-chests">Add 38 chests</button><button class="btn sm" data-act="tr-food">Add 10 of every food</button><button class="btn sm" data-act="tr-pets">Get all ${PETS_LIST.length} pets</button><button class="btn sm" data-act="tr-sweep">Reset Sweep</button><button class="btn sm" data-act="tr-sqk">Add an SQK Chest and 3 pouches</button><button class="btn sm" data-act="tr-daily">Reset the Daily Challenge</button><button class="btn sm" data-act="tr-arena">Reset Arena tries</button></div>
     <div class="sec-t">Jump to a floor (the team is leveled up to match)</div>
     <div class="btns">${[9,19,29,49,99,199,399].filter(n=>n<FLOORS.length).map(n=>`<button class="btn ghost sm" data-act="tr-jump" data-n="${n}">Floor ${n+1}</button>`).join('')}</div>
     <div class="sec-t">Start over</div>
@@ -1909,7 +1976,9 @@ function sheetTrial(){
 
 /* ACTIONS */
 const ACT={
-  nav(d){UI.view=d.v;UI.sheet=null;UI.result=null;UI.sellAsk=false;UI.limit=120;if(d.v==='tower')UI.block=null;render();window.scrollTo(0,0);if(d.v==='ranks')return loadRanks();if(d.v==='arena')return loadArena();},
+  ...SQK_ACT,
+  ...QUEST_ACT,
+  nav(d){UI.view=d.v;UI.sheet=null;UI.result=null;UI.sellAsk=false;UI.limit=120;if(d.v==='tower')UI.block=null;render();window.scrollTo(0,0);if(d.v==='ranks')return loadRanks();if(d.v==='arena')return loadArena();if(d.v==='quests')return loadQuests(true);},
   sheet(d){openSheet({type:d.type,f:d.f});},
   winners(d){openSheet({type:'winners',board:d.board});},
   close(){closeSheet();},
@@ -1923,7 +1992,7 @@ const ACT={
   async guest(){await api('/api/auth/guest',{});await afterLogin();},
   wallet(){UI.walletWait=null;askWallets();openSheet({type:'wallets'});},
   'wallet-pick'(d){pickWallet(+d.i);},
-  async logout(){await api('/api/auth/logout',{});setTicket(null);if(BT)leaveBattle();G=null;PLAYER=null;UI.sheet=null;UI.ranks=null;UI.daily=null;UI.dailyAt=0;UI.arena=null;UI.arenaAt=0;UI.arenaBoard=null;UI.view='login';render();},
+  async logout(){await api('/api/auth/logout',{});setTicket(null);if(BT)leaveBattle();G=null;PLAYER=null;SK.me=null;SK.meAt=0;SK.eth=null;SK.bal=null;SK.balW=null;SK.balAt=0;SK.scanned=false;questReset();UI.sheet=null;UI.ranks=null;UI.daily=null;UI.dailyAt=0;UI.arena=null;UI.arenaAt=0;UI.arenaBoard=null;UI.view='login';render();},
   'to-chests'(){UI.view='items';UI.invTab='chest';UI.sheet=null;UI.result=null;render();window.scrollTo(0,0);},
   enter(d){const f=+d.f;if(f>G.top+1||!FLOORS[f-1])return;UI.result=null;return enterBattle(FLOORS[f-1]);},
   async 'daily-go'(){
@@ -1945,7 +2014,7 @@ const ACT={
   async player(d){
     const s={type:'player',id:d.id,data:null};
     openSheet(s);
-    try{s.data=await api('/api/player?id='+encodeURIComponent(d.id));}catch(e){s.err=e.message||'This climber could not be loaded';}
+    try{s.data=await api('/api/player?id='+encodeURIComponent(d.id));noteSqueeks(s.data.team);}catch(e){s.err=e.message||'This climber could not be loaded';}
     if(UI.sheet===s)render();
   },
   async share(){
@@ -2012,6 +2081,22 @@ const ACT={
   async 'team-out'(d){if(G.team.length>1)await action('team',{team:G.team.filter(x=>x!==d.id)});render();},
   async 'team-swap'(d){const i=G.team.indexOf(d.out);if(i>=0&&!G.team.includes(d.id)){const t=[...G.team];t[i]=d.id;await action('team',{team:t});}render();},
   async 'team-front'(d){const i=G.team.indexOf(d.id);if(i>0){const t=[...G.team];t[i]=t[0];t[0]=d.id;await action('team',{team:t});render();}},
+  async 'sq-sync'(){
+    if(!PLAYER||!PLAYER.wallet){toast('Sign in with a wallet to bring your Squeeks');return;}
+    UI.sqBusy=true;UI.sqMsg=null;render();
+    let ids=[],apiDown=false;
+    try{ids=await squeekIds(PLAYER.wallet);}catch(e){apiDown=true;}
+    try{
+      const j=await api('/api/squeek/sync',{ids});
+      if(j.state)applyState(j.state);
+      const n=(j.found||[]).length;
+      await SQ.load(j.found||[]);
+      UI.sqMsg=apiDown?`The Squeekchain API did not answer, so only the Squeeks already here were checked. ${n} still in your wallet.`:n?`Found ${n} Squeek${n>1?'s':''}: ${(j.found||[]).map(x=>'#'+x).join(', ')}. Tap one to see what its traits gave it.`:'No Squeeks in this wallet or deposited in Staking.';
+      if(j.unread&&j.unread.length)UI.sqMsg+=` Could not read ${j.unread.map(x=>'#'+x).join(', ')} right now, try again later.`;
+    }catch(e){fail(e);}
+    finally{UI.sqBusy=false;render();}
+  },
+  async 'sq-real'(d){const uri=await SQ.realPic(d.id);if(!uri){toast('Could not load the on-chain picture right now');return;}UI.sqReal={id:+d.id,uri};render();},
   gear(d){UI.sheet={type:'gear',id:d.id,slot:d.slot};render();const s=$('.sheet');if(s)s.scrollTop=0;},
   async equip(d){await action('equip',{id:d.id,uid:+d.uid});SND.play('clink');UI.sheet={type:'pet',id:d.id};render();},
   async unequip(d){await action('unequip',{id:d.id,slot:d.slot});SND.play('clink');UI.sheet={type:'pet',id:d.id};render();},
@@ -2020,6 +2105,7 @@ const ACT={
   'spin-feed'(){spinClose();UI.view='team';openSheet({type:'pet',id:lowestTeamPet()});window.scrollTo(0,0);},
   'to-pantry'(){UI.view='items';UI.invTab='food';render();window.scrollTo(0,0);},
   'to-food-odds'(){UI.view='codex';UI.tab='food';render();window.scrollTo(0,0);},
+  'to-patch'(){UI.view='codex';UI.tab='patch';render();window.scrollTo(0,0);},
   chest(d){return runBatch(chestCfg(+d.t,+d.n));},
   'chest-all'(){return runBatch(chestAllCfg());},
   fast(){PREF.fastOpen=!PREF.fastOpen;savePref();render();},
@@ -2046,6 +2132,7 @@ const ACT={
   async 'tr-food'(){await dev('food');render();toast('Added 10 of every food');},
   async 'tr-pets'(){await dev('pets');render();toast(`You now own all ${PETS_LIST.length} pets, at 3 stars for testing branches`);},
   async 'tr-sweep'(){await dev('sweep');render();toast('Sweep is available again');},
+  async 'tr-sqk'(){await dev('sqk');render();toast('Added an SQK Chest and 3 SQK pouches');},
   async 'tr-arena'(){await api('/api/dev',{op:'arena'});UI.arenaAt=0;await loadArena();render();toast('Arena tries are back');},
   async 'tr-daily'(){await dev('daily');UI.dailyAt=0;await loadDaily();render();toast('The Daily Challenge is reset for this wallet');},
   async 'tr-jump'(d){const j=await dev('jump',{n:+d.n});UI.block=null;UI.view='tower';UI.sheet=null;render();window.scrollTo(0,0);toast(`Jumped to floor ${G.top+1}, team raised to level ${j.lv}`);},
@@ -2110,6 +2197,17 @@ async function afterLogin(){
   PLAYER=m.player;G=null;applyState(m.state);
   UI.daily=null;UI.dailyAt=0;UI.liveAt=0;UI.arena=null;UI.arenaAt=0;UI.arenaBoard=null;
   UI.view='tower';UI.block=null;render();window.scrollTo(0,0);
+  skResume();
+}
+/* back from X's own sign in: say how it went, show the Quests tab, and clean the address. The words only ever reach a toast as text */
+function xReturn(){
+  let p;try{p=new URLSearchParams(location.search);}catch(e){return;}
+  const x=p.get('x');if(!x)return;
+  try{history.replaceState(null,'',location.pathname+location.hash);}catch(e){}
+  if(x==='signin'){toast('Sign in first, then connect X');return;}
+  if(!G)return;
+  UI.view='quests';render();loadQuests(true);
+  toast(x==='connected'?`Your X account @${String(p.get('name')||'').slice(0,15)} is connected`:String(p.get('why')||'Could not connect X, please try again').slice(0,200));
 }
 async function boot(){
   FX.init($('#fxc'),speed,()=>{const b=$('#qbtn');const l=FX.Q.level;if(b)b.textContent=l===2?'High':l===1?'Medium':'Low';if(BT)WX.reseed();});
@@ -2119,6 +2217,7 @@ async function boot(){
     const [c]=await Promise.all([api('/api/config'),loadRounds()]);
     CFG=c;
     try{await afterLogin();}catch(e){if(e.status===401){UI.view='login';render();}else throw e;}
+    xReturn();
   }catch(e){
     $('#app').innerHTML=`<main class="login gut"><div class="login-box"><h1>The tower could not open</h1><p>${esc((e&&e.message)||'Something went wrong')}</p><div class="btns"><button class="btn" data-act="reload">Try again</button></div></div></main>`;
   }

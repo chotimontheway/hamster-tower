@@ -123,6 +123,38 @@ const CHEST_BANDS=[[1,20,[80,17,3,0,0]],[21,50,[66,26,7,1,0]],[51,100,[50,32,14,
 const BAG_COST=500;
 const BAG_RATES=[['item','n',62],['item','r',24],['item','e',3],['item','l',.3],['pet','n',7],['pet','r',3],['pet','e',.6],['pet','l',.1]];
 const PITY_E=60,PITY_L=300;
+/* SQK CHEST: the one thing bought with SQK, at most one a UTC day for each wallet. The SQK goes to the game's contract on the chain,
+   which burns half and sends half to the treasury. What it holds is rolled when it opens: n is how many of each kind, w the weights
+   of the chest tiers from Wood to Diamond or of the rarities from Common to Legendary, p the chance of the pet. Food bags are the kind
+   that suits the team's lowest level, and the bags open at once as if bought, so blind bags count toward the guarantees */
+const SQK_CHEST={n:'SQK Chest',chests:{n:[4,6],w:[0,30,42,20,8]},food:{n:[6,10]},bags:{n:[1,3]},gear:{n:[3,5],w:[0,58,36,6]},pet:{p:1,w:[0,62,31,7]}};
+/* SQK POUCH: a wallet that clears a boss floor for the first time gets one. It opens into SQK the wallet can claim from the
+   game's contract. A band of floors pays from a to b SQK, and luck picks how far along: [share of the way from a to b, chance in percent, name] */
+const SQK_POUCH={bands:[{from:10,a:.1,b:.5},{from:50,a:.3,b:1.2},{from:100,a:.8,b:3},{from:200,a:2,b:8},{from:500,a:6,b:25}],luck:[[0,50,'Small'],[.25,30,'Fair'],[.6,15,'Big'],[1,5,'Jackpot']]};
+/* SQK amounts in a save are whole millionths of an SQK */
+const SQK_UNIT=1e6;
+/* QUESTS: a new list every UTC day, made from the floor the player had reached when the day's list was made. From each band of floors on:
+   n quests, tp the Tower Points (TP) one quest pays (hard kinds pay x times more), and sqk the range of SQK the last milestone adds
+   for a wallet, with the same luck as a pouch. Milestones need one quest, half of them and all of them, and pay 1, 2 and 4 times tp */
+const QUEST_BANDS=[{from:0,n:2,tp:5},{from:5,n:3,tp:10},{from:20,n:4,tp:15},{from:30,n:4,tp:20,sqk:[.02,.1]},{from:60,n:5,tp:25,sqk:[.03,.15]},{from:100,n:5,tp:30,sqk:[.05,.25]},{from:200,n:5,tp:40,sqk:[.1,.4]}];
+const QUEST_MS=[1,2,4];
+/* the kinds of daily quest: from is the floor a player needs before it can appear, w how often it is picked, x how many times the band's TP it pays, need how many times it must be done in the low, middle and high bands */
+const QUEST_KINDS={
+  floor:{from:2,w:4,x:1},
+  boss:{from:10,w:2,x:2},
+  climb:{from:0,w:2,x:2},
+  wins:{from:3,w:3,x:1,need:[3,5,8]},
+  arena:{from:5,w:2,x:2},
+  daily:{from:0,w:2,x:1},
+  sweep:{from:1,w:2,x:1},
+  chests:{from:0,w:2,x:1,need:[2,4,8]},
+  wheel:{from:0,w:2,x:1,need:[1,2,4]},
+  bag:{from:10,w:1,x:1},
+};
+/* SOCIAL QUESTS: written by the dev wallet on the admin screen, each done once by each player. These are the starting rewards for a new
+   one: TP, and p the chance of an SQK reward of up to max SQK. The admin can change both for every quest */
+const SOCIAL_KINDS={follow:{n:'Follow',tp:50},like:{n:'Like',tp:10},repost:{n:'Repost',tp:20},comment:{n:'Comment',tp:30},post:{n:'Post',tp:80}};
+const SOCIAL_SQK={p:.3,max:.1};
 /* merge success rates for +1 to +5 */
 const MERGE_RATE=[.92,.72,.52,.36,.22];
 /* FOOD: fill is the fullness it gives, w its weight among foods of the same rarity, d how it must be served in real life.
@@ -232,6 +264,51 @@ const PETS_LIST=[
  pet('poseidon','Trident God','water','fighter','l',['Trident Thrust','front',[D(1.15),ST('defDown',15,2,.4)],'trident'],['Whirlpool','foes',2,[D(1),ST('rust',25,2),ST('slow',15,1)],'whirlpool'],['Tsunami','foes',[D(1.85),['push',.6]],'tsunami']),
 ];
 const PETS=Object.fromEntries(PETS_LIST.map(p=>[p.id,p]));
+/* SQUEEKS: real Squeek NFTs from Squeekchain fight as pets. Nothing is minted here: the server reads each token, its owner and its traits from the chain.
+   Its traits pick its kit: Palette the element, Body Glyph the role, Eyes the skill, Illumination the Rage skill. A Squeek is a little stronger than a Legendary,
+   and every real merge level counts as a star that adds SQ_STAR. One per team */
+RARS.s={n:'Squeek',c:'#FF7AD9',m:1.63,sell:0};
+const SQ_MAX=1,SQ_STAR=.05;
+const SQ_EL={'Acid Lime':'seed',Gold:'seed','Hot Magenta':'dream','Void Violet':'dream','Reactor Red':'spark','Orange CRT':'spark','Electric Cyan':'water','Ice White':'water',RGB:'steel'};
+const SQ_COL={'Acid Lime':'#C6FF3A',Gold:'#FFC83A','Hot Magenta':'#FF5FD8','Void Violet':'#9C7BFF','Reactor Red':'#FF4A5E','Orange CRT':'#FF9B3A','Electric Cyan':'#3AE6FF','Ice White':'#E6F4FF',RGB:'#FF4FA8'};
+const SQ_ROLE={Cross:'fighter',Diamond:'fighter',Shield:'tank','Rounded Square':'tank',Triangle:'ranger',Capsule:'ranger',Sparkle:'mage',Clover:'mage',Heart:'support',Circle:'support',Crown:'support','Lightning Bolt':'assassin',Teardrop:'assassin'};
+const SQ_BASIC={
+  fighter:['Dot Slash','front',[D(1.15),ST('bleed',.12,2,.3),NR(10)],'sqSlash'],
+  tank:['Dot Bash','front',[D(.95),ST('weak',1,1,.3)],'sqBash'],
+  ranger:['Dot Shot','foe',[D(1.15),ST('marked',1,1,.25)],'sqShot'],
+  mage:['Dot Beam','foe',[D(1.15),ST('slow',15,1,.35)],'sqBeam'],
+  support:['Glow Tap','foe',[D(.85),ME('regen',.2,1)],'sqTap'],
+  assassin:['Blink Cut','low',[D(1.2),ME('critUp',10,1)],'sqBlink'],
+};
+const SQ_EYE={
+  'Standard Capsules':['Twin Capsule','foe',2,[D(1.05,{hits:2})],'sqCapsule'],
+  'X Expression':['Knockout','front',3,[D(1.5),ST('stun',1,1,.5),['break']],'sqKnock'],
+  'Tiny Pixels':['Pixel Swarm','rand3',2,[D(.8),ST('marked',1,1,.3)],'sqPixels'],
+  Reticle:['Lock On','foe',2,[D(1.85,{pierce:.3}),['break']],'sqLock'],
+  'Broken Signal':['Signal Burst','foes',3,[D(.85),['static',1],ST('silence',1,1,.35)],'sqSignal'],
+  'Orbit Rings':['Orbit Shield','allies',3,[SH(1.6),TM('defUp',30,2),NR(10,'team')],'sqOrbit'],
+  'Happy Arcs':['Happy Glow','allies',3,[H(1.25),TM('regen',.35,2)],'sqHappy'],
+  'Sleepy Bars':['Lights Out','foes',3,[D(.65),ST('drowsy',1,2),ST('slow',15,1)],'sqSleepy'],
+  Wink:['Wink','foe',2,[D(1.55),ME('dodge',1,2)],'sqWink'],
+  'Wide Blocks':['Block Wall','self',3,[ME('taunt',1,2),ME('defUp',55,2),SH(1.6),ME('thorns',.35,2),NR(25)],'sqBlock'],
+  'Focused Chevrons':['Focus Beam','allies',3,[TM('critUp',20,2),TM('atkUp',32,2)],'sqFocus'],
+  'Vertical Slits':['Predator Gaze','low',2,[D(1.75),ST('bleed',.2,2)],'sqGaze'],
+};
+const SQ_ULT={
+  Overdrive:['Overdrive','foes',[D(1.95),ME('atkUp',30,2)],'sqOverdrive'],
+  'Core Pulse':['Core Pulse','foes',[D(1.55),['healTeam',.6]],'sqPulse'],
+  'Rim Trace':['Rim Trace','foes',[D(1.65),TM('defUp',30,2)],'sqRim'],
+  'Balanced Field':['Balanced Field','foes',[D(1.65),NR(25,'team')],'sqField'],
+  'Phase Sweep':['Phase Sweep','foes',[D(1.6),['push',.4],TM('spdUp',20,2)],'sqPhase'],
+};
+const sqBase=pal=>String(pal||'').replace(/^Spectral /,'');
+/* t holds the four traits that matter: pal, body, eye, ill. lv is the token's real merge level */
+function squeekDef(id,t,lv){
+  const role=SQ_ROLE[t.body]||'fighter',el=SQ_EL[sqBase(t.pal)]||'steel';
+  const p=pet('sq'+id,'Squeek #'+id,el,role,'s',SQ_BASIC[role],SQ_EYE[t.eye]||SQ_EYE['Standard Capsules'],SQ_ULT[t.ill]||SQ_ULT.Overdrive);
+  p.sq={id:+id,lv:Math.max(1,Math.min(10,Math.floor(+lv)||1)),t:{pal:t.pal,body:t.body,eye:t.eye,ill:t.ill},col:SQ_COL[sqBase(t.pal)]||'#FF7AD9'};
+  return p;
+}
 /* MONSTERS: moves are in priority order, the first one whose condition passes is used, the last move is the basic attack */
 const mv=(n,tgt,ops,o)=>Object.assign({n,tgt,ops},o||{});
 const mon=(id,n,el,tier,hp,atk,def,spd,moves,o,ai)=>Object.assign({id,n,el,tier,hp,atk,def,spd,moves,ai},o||{});

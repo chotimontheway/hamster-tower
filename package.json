@@ -18,7 +18,9 @@
     "bake-art": "node scripts/bake-art.js",
     "sim": "node scripts/build.js && node scripts/sim.js",
     "e2e": "node scripts/e2e.js",
-    "loadtest": "node scripts/loadtest.js"
+    "loadtest": "node scripts/loadtest.js",
+    "sqk:admin": "node scripts/sqk-admin.js",
+    "sqk:contract": "node scripts/sqk-contract.js"
   },
   "dependencies": {
     "pg": "^8.23.1",

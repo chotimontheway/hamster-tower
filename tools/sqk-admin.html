@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQK contract</title>
+<style>
+:root{color-scheme:dark;--bg:#15122B;--card:#241F3F;--line:#4A4270;--text:#FFF6E5;--soft:#C9C3DE;--gold:#FFC94D;--pink:#FF7AD9;--cyan:#5BE7FF;--red:#F0506E;--green:#35D07F}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 60px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:26px}
+h2{margin:0 0 6px;font-size:19px;color:var(--gold)}
+section{background:var(--card);border:2px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
+label{display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--soft)}
+input,select{font:inherit;color:var(--text);background:#120F25;border:2px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.row>label{flex:1 1 200px}
+button{font:inherit;font-weight:700;border:0;border-radius:9px;padding:9px 16px;background:var(--gold);color:#2A1B3D;cursor:pointer}
+button.alt{background:#3A3160;color:var(--text)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.note{font-size:13px;color:var(--soft);margin:0}
+.warn{color:var(--red);font-weight:700}
+.ok{color:var(--green)}
+.mono{font-family:Consolas,'Courier New',monospace;word-break:break-all}
+dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:0;font-size:14px}
+dt{color:var(--soft)}dd{margin:0}
+#log p{margin:0 0 4px;font-size:13px;word-break:break-all}
+#log p.ok{color:var(--green)}#log p.bad{color:var(--red)}
+</style>
+</head>
+<body>
+<main>
+<h1>SQK contract for Hamster Tower</h1>
+<p class="note">This page runs on your own computer. It only prepares transactions, and your wallet asks you to sign each one. It never sees a key.</p>
+
+<section>
+  <h2>1. Wallet</h2>
+  <div class="row"><label>Wallet<select id="wl"></select></label><button id="connect">Connect</button><button class="alt" id="sepolia">Switch to Sepolia</button></div>
+  <p class="note" id="who">Not connected.</p>
+</section>
+
+<section>
+  <h2>2. The game's signer</h2>
+  <p class="note">The game server signs how much SQK each wallet earned. The contract must trust its address. Read it from the game: the one on this computer for a trial, or https://www.hamstertower.site when going live.</p>
+  <div class="row"><label>Game address<input id="site"></label><button class="alt" id="readSigner">Read the signer</button></div>
+  <label>Signer address<input id="signer" class="mono" placeholder="0x..."></label>
+  <p class="note" id="signerNote"></p>
+</section>
+
+<section>
+  <h2>3. Deploy the contract</h2>
+  <label>SQK token<input id="token" class="mono"></label>
+  <label>Treasury, gets the half of each price that is not burned<input id="treasury" class="mono"></label>
+  <div class="row"><label>Most SQK one claim may pay<input id="maxClaim" value="30"></label><label>Most SQK all claims may pay in a day<input id="dayCap" value="100"></label><label>SQK Chest price<input id="price0"></label></div>
+  <div class="row"><button id="deploy">Deploy</button></div>
+  <p class="note">Your wallet asks twice: once to make the contract, once to set the price.</p>
+  <p class="note" id="deployed"></p>
+</section>
+
+<section>
+  <h2>4. Attach it to the game on this computer</h2>
+  <p class="note">The game you run with npm start then sells the SQK Chest through this contract and pays rewards from it. The live site is not touched; it only changes when SQK_SHOP is set on Vercel.</p>
+  <div class="row"><button id="attach">Attach the contract below</button><button class="alt" id="detach">Detach</button></div>
+  <p class="note" id="attached"></p>
+</section>
+
+<section>
+  <h2>5. Manage it</h2>
+  <div class="row"><label>Contract<input id="contract" class="mono" placeholder="0x..."></label><button class="alt" id="load">Load</button></div>
+  <dl id="status"></dl>
+  <div class="row"><label>SQK Chest price in SQK, 0 closes the shop<input id="price"></label><button id="setPrice">Set price</button></div>
+  <div class="row"><label>Most SQK one claim may pay<input id="newMax"></label><label>Most SQK in a day<input id="newCap"></label><button id="setLimits">Set limits</button></div>
+  <div class="row"><label>SQK to put into the reward pool, from this wallet<input id="deposit"></label><button id="doDeposit">Deposit</button></div>
+  <div class="row"><label>SQK to take out of the pool, to this wallet<input id="take"></label><button class="alt" id="doWithdraw">Withdraw</button></div>
+  <div class="row"><button class="alt" id="useSigner">Trust the signer from step 2</button><button class="alt" id="useTreasury">Use the treasury from step 3</button><button class="alt" id="pause">Pause</button><button class="alt" id="unpause">Unpause</button></div>
+</section>
+
+<section>
+  <h2>Log</h2>
+  <div id="log"></div>
+</section>
+</main>
+<script>
+const I=/*INFO*/null;
+const $=s=>document.querySelector(s);
+const h64=x=>BigInt(x).toString(16).padStart(64,'0');
+const a64=a=>String(a).toLowerCase().replace(/^0x/,'').padStart(64,'0');
+const isAddr=a=>/^0x[0-9a-fA-F]{40}$/.test(String(a||'').trim());
+const addr=id=>{const a=$(id).value.trim();if(!isAddr(a))throw new Error('Write a full 0x address in '+id.slice(1));return a.toLowerCase();};
+function wei(s){s=String(s).trim();if(!/^\d+(\.\d{1,18})?$/.test(s))throw new Error('Write an amount like 10 or 2.5');const [i,f='']=s.split('.');return BigInt(i)*10n**18n+BigInt((f+'0'.repeat(18)).slice(0,18));}
+function sqk(w){const x=BigInt(w),i=x/10n**18n,f=(x%10n**18n).toString().padStart(18,'0').replace(/0+$/,'');return i.toLocaleString('en-US')+(f?'.'+f.slice(0,6):'')+' SQK';}
+const log=(t,cls)=>{const p=document.createElement('p');p.textContent=new Date().toLocaleTimeString()+'  '+t;if(cls)p.className=cls;$('#log').prepend(p);};
+let eth=null,me=null;
+const wallets=new Map();
+addEventListener('eip6963:announceProvider',e=>{const d=e.detail;if(d&&d.provider&&d.info){wallets.set(d.info.rdns||d.info.name,d);fill();}});
+dispatchEvent(new Event('eip6963:requestProvider'));
+function fill(){const list=wallets.size?[...wallets.values()]:window.ethereum?[{info:{name:'Browser wallet'},provider:window.ethereum}]:[];$('#wl').innerHTML=list.map((w,i)=>`<option value="${i}">${String(w.info.name).replace(/[<&>"]/g,'')}</option>`).join('')||'<option>No wallet found</option>';fill.list=list;}
+setTimeout(fill,300);
+$('#site').value=I.site;$('#token').value=I.token;$('#treasury').value=I.treasury;$('#price0').value=I.price;$('#price').value=I.price;
+const run=f=>async()=>{try{await f();}catch(e){log((e&&(e.message||e.code))||'Something went wrong','bad');}};
+async function chain(){return parseInt(await eth.request({method:'eth_chainId'}),16);}
+async function showWho(){$('#who').textContent=me?`${me} on chain ${await chain()}${await chain()===11155111?' (Sepolia)':''}`:'Not connected.';}
+$('#connect').onclick=run(async()=>{const w=(fill.list||[])[+$('#wl').value];if(!w)throw new Error('No wallet found in this browser');eth=w.provider;const a=await eth.request({method:'eth_requestAccounts'});me=String(a[0]).toLowerCase();await showWho();log('Connected '+me,'ok');});
+$('#sepolia').onclick=run(async()=>{if(!eth)throw new Error('Connect first');await eth.request({method:'wallet_switchEthereumChain',params:[{chainId:'0xaa36a7'}]});await showWho();});
+const call=(to,data)=>eth.request({method:'eth_call',params:[{to,data},'latest']});
+/* Sepolia raised the gas of new contracts and new state in 2026, and some wallets cannot estimate it. So every transaction gets the
+   higher of the wallet's estimate and a public node's, plus a margin, and fees from the newest block */
+const RPCS=I.rpcs;
+async function pub(method,params){
+  let last;
+  for(const u of RPCS){
+    try{const r=await fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});const j=await r.json();if(j.error)throw Object.assign(new Error(j.error.message||'RPC error'),{data:j.error.data});return j.result;}
+    catch(e){last=e;if(e.data)throw e;}
+  }
+  throw last||new Error('No public node answered');
+}
+const ERRS={'0x30cd7471':'Only the owner of the contract can do this. Connect the wallet that deployed it','0x1853971c':'Only the proposed new owner can accept','0xd92e233d':'An address is missing','0xe450d38c':'This wallet does not hold that much SQK','0xfb8f41b2':'The SQK approval is too small','0x90b8ec18':'The token refused the transfer'};
+function why(e){const hex=x=>typeof x==='string'&&/^0x[0-9a-f]{8}/i.test(x)?x:null;const d=e&&(hex(e.data)||hex(e.data&&e.data.data)||hex(e.error&&e.error.data)||(/0x[0-9a-f]{8}/i.exec(String(e.message))||[])[0]);return d&&ERRS[d.slice(0,10).toLowerCase()]||null;}
+async function send(to,data,what){
+  if(!eth||!me)throw new Error('Connect a wallet first');
+  const p={from:me,data};if(to)p.to=to;
+  const onSepolia=await chain()===11155111;
+  let w=null,n=null,err=null;
+  try{w=BigInt(await eth.request({method:'eth_estimateGas',params:[p]}));}catch(e){err=e;}
+  if(onSepolia){try{n=BigInt(await pub('eth_estimateGas',[p]));}catch(e){const m=why(e);if(m)throw new Error(what+': '+m);if(e.data)throw new Error(what+' would fail: '+e.message);}}
+  if(w===null&&n===null&&err){const m=why(err);throw new Error(what+(m?': '+m:' would fail: '+(err.message||'the wallet could not estimate it')));}
+  const g=w===null?n:n===null?w:(w>n?w:n);
+  if(g!==null){let x=g*12n/10n;if(x>16777216n)x=16777216n;p.gas='0x'+x.toString(16);}
+  if(onSepolia){try{const b=await pub('eth_getBlockByNumber',['latest',false]),base=BigInt(b.baseFeePerGas||'0x0');let tip=BigInt(await pub('eth_maxPriorityFeePerGas',[]));if(tip<1000000n)tip=1000000n;p.maxPriorityFeePerGas='0x'+tip.toString(16);p.maxFeePerGas='0x'+(base*2n+tip).toString(16);}catch(e){}}
+  if(g!==null)log(what+': about '+g.toLocaleString('en-US')+' gas');
+  const h=await eth.request({method:'eth_sendTransaction',params:[p]});
+  log(what+': sent '+h);
+  for(let i=0;i<240;i++){const r=await eth.request({method:'eth_getTransactionReceipt',params:[h]});if(r&&r.blockNumber){if(r.status!=='0x1')throw new Error(what+' failed on the chain');log(what+': done in block '+parseInt(r.blockNumber,16),'ok');return r;}await new Promise(z=>setTimeout(z,2500));}
+  throw new Error(what+': still waiting, check your wallet');
+}
+function signerCheck(){const s=$('#signer').value.trim().toLowerCase();$('#signerNote').innerHTML=!s?'':s===I.devSigner?'<span class="warn">This is the signer of a game running on a computer for testing. Anyone can know its key, so a real contract must never trust it.</span>':isAddr(s)?'Looks like a full address.':'<span class="warn">Not a full 0x address.</span>';}
+$('#signer').oninput=signerCheck;
+$('#readSigner').onclick=run(async()=>{const j=await (await fetch($('#site').value.trim().replace(/\/$/,'')+'/api/sqk')).json();if(!j.signer)throw new Error('That game did not name a signer');$('#signer').value=j.signer;signerCheck();log('The game signs with '+j.signer,'ok');});
+$('#deploy').onclick=run(async()=>{
+  const token=addr('#token'),treasury=addr('#treasury'),signer=addr('#signer');
+  if(signer===I.devSigner&&!confirm('This signer belongs to a test game whose key anyone can know. Deploy anyway?'))return;
+  if(await chain()!==11155111&&!confirm('Your wallet is not on Sepolia. Deploy on chain '+await chain()+' anyway?'))return;
+  const price=wei($('#price0').value||'0');
+  const r=await send(null,I.bytecode+a64(token)+a64(treasury)+a64(signer)+h64(wei($('#maxClaim').value))+h64(wei($('#dayCap').value)),'Deploy');
+  const c=String(r.contractAddress).toLowerCase(),b=parseInt(r.blockNumber,16);
+  if(!isAddr(c)||!(b>0))throw new Error('The wallet did not report the new contract, look it up on the explorer and Load it');
+  $('#contract').value=c;$('#contract').dataset.block=b;
+  $('#deployed').innerHTML=`Deployed at <span class="mono">${c}</span> in block ${b}. For the live site later, Vercel needs SQK_SHOP=${c} and SQK_FROM_BLOCK=${b}.`;
+  if(price>0n)await send(c,I.sel.setChestPrice+h64(price),'Set price');
+  await load();
+});
+async function showAttached(){
+  try{const j=await (await fetch('/attach')).json();$('#attached').innerHTML=j.shop?`The game on this computer uses <span class="mono">${j.shop}</span>, made in block ${j.fromBlock}.`:'The game on this computer has no SQK contract yet.';}catch(e){}
+}
+showAttached();
+$('#attach').onclick=run(async()=>{
+  const c=C();let b=+($('#contract').dataset.block||0);
+  if(!b){const x=prompt('The block the contract was made in, from the explorer. It lets the game find purchases a page lost track of.','0');if(x===null)return;b=Math.max(0,Math.floor(Number(x)||0));}
+  const r=await fetch('/attach',{method:'POST',headers:{'content-type':'application/json','x-token':I.token2},body:JSON.stringify({shop:c,fromBlock:b})});
+  const j=await r.json();if(!r.ok)throw new Error(j.error||'Could not attach');
+  log('Attached '+c+' to the game on this computer. It picks it up within a few seconds.','ok');await showAttached();
+});
+$('#detach').onclick=run(async()=>{
+  const r=await fetch('/attach',{method:'POST',headers:{'content-type':'application/json','x-token':I.token2},body:JSON.stringify({detach:true})});
+  if(!r.ok)throw new Error('Could not detach');log('The game on this computer no longer uses an SQK contract','ok');await showAttached();
+});
+const C=()=>addr('#contract');
+const word=(hex,i)=>hex.slice(2+i*64,66+i*64);
+async function load(){
+  const c=C(),q=(f,args)=>call(c,I.sel[f]+(args||''));
+  const st=await q('status',a64(me||'0x0000000000000000000000000000000000000000'));
+  if(!st||st.length<2+64*9)throw new Error('This address does not answer like the SQK contract');
+  const owner='0x'+(await q('owner')).slice(26),cap=BigInt(await q('dayCap')),pend='0x'+(await q('pendingOwner')).slice(26);
+  const w=i=>BigInt('0x'+word(st,i)),ad=i=>'0x'+word(st,i).slice(24);
+  const rows=[['Owner',owner+(me&&owner===me?' (you)':'')],['Treasury',ad(8)],['Signer',ad(7)+(ad(7)===I.devSigner?' (a test signer, replace it)':'')],['Chest price',w(0)?sqk(w(0)):'not set, the shop is closed'],['Paused',w(1)?'yes':'no'],['Reward pool',sqk(w(4))],['Most in one claim',sqk(w(6))],['Most in a day',sqk(cap)],['Left today',sqk(w(5))]];
+  if(!/^0x0+$/.test(pend))rows.push(['Owner waiting to accept',pend]);
+  $('#status').innerHTML=rows.map(([k,x])=>`<dt>${k}</dt><dd class="mono">${x}</dd>`).join('');
+  log('Loaded '+c,'ok');
+}
+$('#load').onclick=run(load);
+$('#setPrice').onclick=run(async()=>{await send(C(),I.sel.setChestPrice+h64(wei($('#price').value)),'Set price');await load();});
+$('#setLimits').onclick=run(async()=>{await send(C(),I.sel.setLimits+h64(wei($('#newMax').value))+h64(wei($('#newCap').value)),'Set limits');await load();});
+$('#doDeposit').onclick=run(async()=>{const token=addr('#token');await send(token,I.sel.erc20_transfer+a64(C())+h64(wei($('#deposit').value)),'Deposit');await load();});
+$('#doWithdraw').onclick=run(async()=>{const token=addr('#token');await send(C(),I.sel.withdraw+a64(token)+a64(me)+h64(wei($('#take').value)),'Withdraw');await load();});
+$('#useSigner').onclick=run(async()=>{const s=addr('#signer');if(s===I.devSigner&&!confirm('This signer belongs to a test game whose key anyone can know. Trust it anyway?'))return;await send(C(),I.sel.setSigner+a64(s),'Set signer');await load();});
+$('#useTreasury').onclick=run(async()=>{await send(C(),I.sel.setTreasury+a64(addr('#treasury')),'Set treasury');await load();});
+$('#pause').onclick=run(async()=>{await send(C(),I.sel.setPaused+h64(1),'Pause');await load();});
+$('#unpause').onclick=run(async()=>{await send(C(),I.sel.setPaused+h64(0),'Unpause');await load();});
+</script>
+</body>
+</html>

@@ -437,11 +437,42 @@ function chestArt(c,band,gem,rays,dark){
   const u='c'+(N++),gemF=gem;
   return `<defs>${lg(u+'b',[mix(c,'#FFFFFF',.3),c,mix(c,'#1A1030',.4)],.6,1)}${lg(u+'l',[mix(c,'#FFFFFF',.45),mix(c,'#FFFFFF',.1),mix(c,'#1A1030',.25)],.6,1)}${lg(u+'m',[mix(band,'#FFFFFF',.5),band,mix(band,'#1A1030',.35)],.5,1)}${rg(u+'g',[mix(gem,'#FFFFFF',.7),gem,mix(gem,'#1A1030',.4)],.35,.3,.85)}</defs>${rays?[0,30,60,90,120,150,180,210,240,270,300,330].map(a=>`<path d="M0,-20L-9,-128L9,-128Z" transform="rotate(${a} 0 -20)" fill="${gemF}" opacity=".35"/>`).join(''):''}<ellipse cy="96" rx="96" ry="12" fill="#050310" opacity=".28"/><rect x="-92" y="-22" width="184" height="112" rx="14" fill="url(#${u}b)" ${ln(4)}/><path d="M-92,-22C-92,-98 92,-98 92,-22Z" fill="url(#${u}l)" ${ln(4)}/>${dark?`<path d="M-92,14H92M-92,50H92M-60,-20V88M60,-20V88" stroke="${mix(c,'#1A1030',.55)}" stroke-width="3" opacity=".7"/>`:''}${shine('M-74,-44C-50,-72 -14,-82 22,-80',.6,7)}<rect x="-68" y="-74" width="24" height="164" rx="6" fill="url(#${u}m)" ${ln(3.2)}/><rect x="44" y="-74" width="24" height="164" rx="6" fill="url(#${u}m)" ${ln(3.2)}/><rect x="-96" y="-30" width="192" height="20" rx="6" fill="url(#${u}m)" ${ln(3.2)}/><rect x="-26" y="-38" width="52" height="58" rx="10" fill="url(#${u}m)" ${ln(3.4)}/><circle cy="-16" r="13" fill="url(#${u}g)" ${ln(2.8)}/><rect x="-4" y="-6" width="8" height="18" rx="2" fill="${INK}"/><circle cx="-56" cy="60" r="3.4" fill="#fff" opacity=".7"/><circle cx="56" cy="60" r="3.4" fill="#fff" opacity=".7"/>${rays?star5(-84,-96,11,'#FFF6C9',2)+star5(90,-84,9,'#FFF6C9',1.8):''}`;
 }
+/* SQK: a night dark chest with bands of lit LED dots in the Squeek colours and a gold wheel for a lock, so it reads apart from every coin chest. The pouch and the coin share the wheel */
+const SQK_LED=['#FF7AD9','#5BE7FF','#FFE27A','#9DFF7A'];
+const sqkLed=(x,y,c)=>`<circle cx="${f2(x)}" cy="${f2(y)}" r="7" fill="${c}" opacity=".26"/><circle cx="${f2(x)}" cy="${f2(y)}" r="3.6" fill="${c}"/><circle cx="${f2(x-1)}" cy="${f2(y-1.2)}" r="1.3" fill="#fff" opacity=".85"/>`;
+const sqkRow=(x0,y0,x1,y1,n,k)=>Array.from({length:n},(_,i)=>sqkLed(x0+(x1-x0)*i/(n-1),y0+(y1-y0)*i/(n-1),SQK_LED[(i+k)%SQK_LED.length])).join('');
+const sqkWheel=(cx,cy,r,u)=>`<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#${u})" ${ln(3.4)}/><circle cx="${cx}" cy="${cy}" r="${f2(r*.7)}" fill="${INK}"/>${[0,60,120,180,240,300].map(a=>`<path d="M${cx},${cy}L${cx},${f2(cy-r*.62)}" transform="rotate(${a} ${cx} ${cy})" stroke="#FFCB4F" stroke-width="${f2(r*.12)}" stroke-linecap="round"/>`).join('')}<circle cx="${cx}" cy="${cy}" r="${f2(r*.2)}" fill="#5BE7FF" ${ln(2)}/>`;
+function sqkChest(){
+  const u='q'+(N++);
+  return `<defs>${lg(u+'b',['#4A2C86','#2A1758','#140A2E'],.6,1)}${lg(u+'l',['#5E3AA6','#36206E','#1C0F40'],.6,1)}${lg(u+'m',['#3E2470','#22123F','#120826'],.5,1)}${rg(u+'g',['rgba(255,122,217,.8)','rgba(91,231,255,.22)','rgba(91,231,255,0)'],.5,.45,.55)}${rg(u+'c',['#FFF6C9','#FFCB4F','#B87A12'],.35,.3,.85)}</defs>
+    <circle cy="-14" r="122" fill="url(#${u}g)"/>${[0,30,60,90,120,150,180,210,240,270,300,330].map((a,i)=>`<path d="M0,-20L-8,-130L8,-130Z" transform="rotate(${a} 0 -20)" fill="${i%2?'#5BE7FF':'#FF7AD9'}" opacity=".3"/>`).join('')}
+    <ellipse cy="96" rx="98" ry="12" fill="#050310" opacity=".35"/>
+    <rect x="-94" y="-22" width="188" height="112" rx="14" fill="url(#${u}b)" ${ln(4)}/><path d="M-94,-22C-94,-100 94,-100 94,-22Z" fill="url(#${u}l)" ${ln(4)}/>
+    ${shine('M-76,-44C-52,-74 -16,-84 20,-82',.42,6)}
+    <rect x="-70" y="-76" width="24" height="166" rx="6" fill="url(#${u}m)" ${ln(3.2)}/><rect x="46" y="-76" width="24" height="166" rx="6" fill="url(#${u}m)" ${ln(3.2)}/><rect x="-98" y="-31" width="196" height="20" rx="6" fill="url(#${u}m)" ${ln(3.2)}/>
+    ${sqkRow(-88,-21,88,-21,13,0)}${sqkRow(-58,-62,-58,80,8,1)}${sqkRow(58,-62,58,80,8,2)}
+    ${sqkWheel(0,-16,30,u+'c')}
+    <text x="0" y="52" text-anchor="middle" font-family="Verdana,sans-serif" font-weight="800" font-size="28" letter-spacing="2" fill="#FFE27A" stroke="${INK}" stroke-width="2.6" paint-order="stroke">SQK</text>
+    ${star5(-102,-88,11,'#FF7AD9',2)}${star5(98,-100,10,'#5BE7FF',2)}${star5(104,-26,7,'#FFE27A',1.6)}`;
+}
+function sqkPouch(){
+  const u='o'+(N++),B=sm([[-28,-40],[-64,-10],[-84,38],[-68,86],[0,100],[68,86],[84,38],[64,-10],[28,-40]]);
+  return `<defs>${lg(u+'v',['#8A5CF0','#4A2C9C','#22125A'],.6,1)}${rg(u+'s',['rgba(255,122,217,.7)','rgba(91,231,255,.16)','rgba(91,231,255,0)'],.5,.5,.5)}${rg(u+'c',['#FFF6C9','#FFCB4F','#B87A12'],.35,.3,.85)}<clipPath id="${u}k"><path d="${B}"/></clipPath></defs>
+    <circle cy="22" r="106" fill="url(#${u}s)"/>
+    <circle cx="-30" cy="-58" r="18" fill="url(#${u}c)" ${ln(3)}/><circle cx="26" cy="-64" r="20" fill="url(#${u}c)" ${ln(3)}/><circle cx="2" cy="-74" r="16" fill="url(#${u}c)" ${ln(3)}/>
+    <path d="M-30,-44C-42,-62 -50,-72 -38,-84C-24,-76 -12,-80 0,-80C12,-80 24,-76 38,-84C50,-72 42,-62 30,-44Z" fill="url(#${u}v)" ${ln(3.4)}/>
+    ${inked(B,`url(#${u}v)`,3.4)}
+    <g clip-path="url(#${u}k)"><path d="M-90,70C-40,94 40,94 90,70V110H-90Z" fill="#160A3E" opacity=".55"/><path d="M-60,-6C-70,14 -76,36 -74,56" fill="none" stroke="#E6D6FF" stroke-opacity=".55" stroke-width="8" stroke-linecap="round"/></g>
+    <path d="M-34,-44C-14,-32 14,-32 34,-44L38,-32C14,-18 -14,-18 -38,-32Z" fill="url(#gGold)" ${ln(3)}/>
+    ${sqkRow(-30,-34,30,-34,5,0)}
+    ${sqkWheel(0,38,32,u+'c')}
+    ${star5(-80,-36,11,'#FF7AD9',2)}${star5(82,-28,9,'#5BE7FF',1.8)}${star5(86,70,7,'#FFE27A',1.4)}`;
+}
 /* one finished picture as an svg string, for baking */
 const VB_PET='-124 -226 248 248';
 function wearAll(key,gear){
   return {hat:gear&&gear.hat?GEAR['hat_'+gear.hat]:ownPiece(key,'hat'),armor:gear&&gear.armor?GEAR['armor_'+gear.armor]:ownPiece(key,'armor'),weapon:gear&&gear.weapon?GEAR['weapon_'+gear.weapon]:ownPiece(key,'weapon'),charm:gear&&gear.charm?GEAR['charm_'+gear.charm]:ownPiece(key,'charm'),off:(gear&&gear.weapon&&PETS[key].off)?null:ownPiece(key,'off')};
 }
 const BOSS_VB=k=>{const b=BOSS[k]||RA.MON[k];return `${-b.w/2-30+(b.ax||0)} ${-b.h-30} ${b.w+60} ${b.h+60}`;};
-return {INK,f2,sm,ln,inked,lg,rg,shine,bossEye,brow,teeth,G,mix,PETS,GEAR,BOSS,FUR,BACKS,FACE,CLOTH,SKIRT,hamster,ownPiece,pieceOf,wearAll,chainPath,shoulderArt,gearIcon,blindBag,snackBag,picnicBag,feastBag,chestArt,ensureDefs,inlineDefs,VB_PET,BOSS_VB,star5,zap,HEAD,TORSO};
+return {INK,f2,sm,ln,inked,lg,rg,shine,bossEye,brow,teeth,G,mix,PETS,GEAR,BOSS,FUR,BACKS,FACE,CLOTH,SKIRT,hamster,ownPiece,pieceOf,wearAll,chainPath,shoulderArt,gearIcon,blindBag,snackBag,picnicBag,feastBag,chestArt,sqkChest,sqkPouch,ensureDefs,inlineDefs,VB_PET,BOSS_VB,star5,zap,HEAD,TORSO};
 })();

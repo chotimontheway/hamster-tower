@@ -9,5 +9,7 @@ dist/
 public/app/
 public/index.html
 lib/engine.generated.cjs
+contracts/out/
+contracts/cache/
 .env*
 !.env.example

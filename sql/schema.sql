@@ -142,3 +142,67 @@ CREATE INDEX IF NOT EXISTS arena_log_attacker ON arena_log (attacker, at DESC);
 CREATE INDEX IF NOT EXISTS arena_log_defender ON arena_log (defender, at DESC);
 -- When a page said the run began, for a fight the chain could not confirm yet. Checked once the chain has caught up
 ALTER TABLE arena_log ADD COLUMN IF NOT EXISTS early bigint;
+
+-- Squeek NFTs brought in as pets. Traits and the picture are read from tokenURI once and never change. Level, holder and the player it fights for are
+-- read from the chain again when a check is old. A Squeek fights for one player at a time
+CREATE TABLE IF NOT EXISTS squeeks (
+  id         int PRIMARY KEY,
+  traits     jsonb NOT NULL,
+  art        jsonb NOT NULL,
+  svg        text NOT NULL,
+  level      int NOT NULL DEFAULT 1,
+  holder     text,
+  staked     boolean NOT NULL DEFAULT false,
+  player_id  bigint REFERENCES players (id) ON DELETE SET NULL,
+  checked_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS squeeks_player ON squeeks (player_id);
+
+-- SQK: SQK Chests not opened yet, the days whose purchase was counted, boss floor pouches and the SQK they gave. Purchases and payouts themselves are on the chain
+ALTER TABLE players ADD COLUMN IF NOT EXISTS sqk jsonb NOT NULL DEFAULT '{}';
+
+-- Quests: Tower Points earned, and today's quest list with its progress, the social quests done and the player's X name
+ALTER TABLE players ADD COLUMN IF NOT EXISTS tp bigint NOT NULL DEFAULT 0;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS quests jsonb NOT NULL DEFAULT '{}';
+-- Social quests the dev wallet writes on the admin screen. need holds the tags and hashtags a post must carry, space separated
+CREATE TABLE IF NOT EXISTS social_quests (
+  id         serial PRIMARY KEY,
+  kind       text NOT NULL,
+  title      text NOT NULL,
+  url        text NOT NULL DEFAULT '',
+  need       text NOT NULL DEFAULT '',
+  tp         int NOT NULL,
+  sqk_p      real NOT NULL DEFAULT 0,
+  sqk_max    real NOT NULL DEFAULT 0,
+  starts_at  timestamptz,
+  ends_at    timestamptz,
+  active     boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+-- Who did which social quest, with the link they gave for a comment or a post, so the admin can look at them
+CREATE TABLE IF NOT EXISTS social_done (
+  quest_id  int NOT NULL REFERENCES social_quests (id) ON DELETE CASCADE,
+  player_id bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  proof     text,
+  tp        int NOT NULL,
+  sqk       bigint NOT NULL DEFAULT 0,
+  at        timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (quest_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS social_done_at ON social_done (at DESC);
+-- X accounts connected through X's own sign in. One X account belongs to one player. The token is encrypted with a key made from
+-- SESSION_SECRET and only reads that account's own posts, likes and follows for the checks
+CREATE TABLE IF NOT EXISTS x_accounts (
+  x_id       text PRIMARY KEY,
+  player_id  bigint NOT NULL UNIQUE REFERENCES players (id) ON DELETE CASCADE,
+  username   text NOT NULL,
+  token      text NOT NULL,
+  linked_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- the X account that did each social quest, so moving it to another player cannot do the same quests again
+ALTER TABLE social_done ADD COLUMN IF NOT EXISTS x_id text;
+CREATE UNIQUE INDEX IF NOT EXISTS social_done_x ON social_done (quest_id, x_id) WHERE x_id IS NOT NULL;
+-- one post or comment can pay one player only. A copy made before this rule may hold the same link twice, the first one stays
+DELETE FROM social_done a USING social_done b WHERE a.proof IS NOT NULL AND a.proof = b.proof AND (a.at, a.quest_id, a.player_id) > (b.at, b.quest_id, b.player_id);
+CREATE UNIQUE INDEX IF NOT EXISTS social_done_proof ON social_done (proof) WHERE proof IS NOT NULL;
