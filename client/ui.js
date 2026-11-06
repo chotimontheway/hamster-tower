@@ -107,11 +107,15 @@ function topBar(){
     <button class="brand" data-act="nav" data-v="tower" aria-label="Back to the tower">${pic('logo','')}<span>Hamster Tower</span></button>
     <span class="top-bal"><span class="pill num top-coin" title="Coins: ${fmt(G.coins)}">${coin}${coinShort(G.coins)}</span>${PLAYER&&PLAYER.wallet?(skBal(),`<span id="top-sqk">${sqkPill()}</span>`):''}</span>
     <span class="pill num top-floor" title="Floor ${G.top}">Floor ${G.top}</span>
-    ${soundBtn()}${musicBtn()}
+    ${soundBtn()}${musicBtn()}${xBtn()}
     ${PLAYER&&PLAYER.trial?'<button class="trial-btn" data-act="sheet" data-type="trial">Test<span class="wide"> panel</span></button>':''}${PLAYER&&PLAYER.wallet?`<span class="who"><button class="who-addr num" data-act="copy" data-t="${PLAYER.name}" title="Copy ${PLAYER.name}" aria-label="Copy wallet address ${PLAYER.name}">${shortAddr(PLAYER.name)}</button><button class="who-out" data-act="logout">Sign out</button></span>`:'<button class="trial-btn" data-act="sheet" data-type="guest">Guest</button>'}
   </div></header>`;
 }
 const shortAddr=a=>a.slice(0,6)+'...'+a.slice(-4);
+/* the game's account on X, with X's own logo, on the start screen and in the top bar */
+const X_URL='https://x.com/hamstertowersqk';
+const xIcon=s=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`;
+const xBtn=()=>`<a class="snd-btn x-btn" href="${X_URL}" target="_blank" rel="noopener noreferrer" aria-label="Hamster Tower on X" title="Hamster Tower on X">${xIcon(17)}</a>`;
 const soundIcon=()=>`<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 9.5v5h3.6L13 19V5L7.6 9.5H4z"/>${SND.on()?'<path d="M15.5 9a4.2 4.2 0 0 1 0 6M18 6.5a7.8 7.8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>':'<path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'}</svg>`;
 const soundLabel=()=>SND.on()?'Sound on, press to mute':'Sound off, press to turn on';
 const soundBtn=()=>`<button class="snd-btn${SND.on()?'':' off'}" data-act="sound" aria-pressed="${SND.on()}" aria-label="${soundLabel()}" title="${soundLabel()} (M)">${soundIcon()}</button>`;
@@ -200,6 +204,7 @@ function viewLogin(){
     <p>A real hamster runs on the WHEELY9000 wheel, and every round with work becomes a floor. Climb the tower with your team of pets.</p>
     <div class="btns"><button class="btn big" data-act="wallet">Sign in with wallet</button>${CFG.guest?'<button class="btn ghost" data-act="guest">Play as guest</button>':''}</div>
     <p class="note">You only sign a message. It costs nothing and sends no transaction.</p>
+    <a class="x-follow" href="${X_URL}" target="_blank" rel="noopener noreferrer">${xIcon(18)}<span>Follow @hamstertowersqk</span></a>
   </div></main>`;
 }
 /* a guest save has no way back once the session is gone, so signing out asks first and offers a wallet */
@@ -215,14 +220,17 @@ const setBg=m=>{document.documentElement.dataset.bg=m;};
    logo give way, and last the gaps and paddings tighten, so no button gets squeezed */
 function fitTop(){
   const b=$('.top-in');if(!b)return;
-  const over=()=>b.scrollWidth>b.clientWidth+1,f=$('.top-floor',b),br=$('.brand',b);
+  const over=()=>b.scrollWidth>b.clientWidth+1,f=$('.top-floor',b),br=$('.brand',b),xb=$('.x-btn',b);
   b.classList.remove('bal-stack','top-tight');
+  if(xb)xb.style.display='';
   if(br)br.style.display='';
   if(f){f.style.display='';f.textContent='Floor '+G.top;}
   if(over()&&$('.top-sqk',b))b.classList.add('bal-stack');
   if(f){if(over())f.textContent='F'+G.top;if(over())f.style.display='none';}
   if(br&&over())br.style.display='none';
   if(over())b.classList.add('top-tight');
+  /* the X button goes last, it is also on the start screen */
+  if(xb&&over())xb.style.display='none';
 }
 function render(){
   tipHide();

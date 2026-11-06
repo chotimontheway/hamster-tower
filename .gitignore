@@ -13,3 +13,6 @@ contracts/out/
 contracts/cache/
 .env*
 !.env.example
+
+# test wallet keys for the local farm script, never commit or upload
+testkeys.txt

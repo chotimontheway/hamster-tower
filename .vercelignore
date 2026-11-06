@@ -5,3 +5,6 @@
 dist
 shots
 node_modules
+
+# test wallet keys for the local farm script, never upload
+testkeys.txt
