@@ -39,8 +39,8 @@ function questGo(x){
 const resetIn=()=>{const s=QK.data?Math.max(0,QK.data.reset-Math.floor((Date.now()-QK.at)/1000)):0;return Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m';};
 
 /* SCREEN */
-/* four parts side by side: today's quests, the social quests on X, the weekly TP board and the achievements */
-const QTABS=[['daily','Daily'],['social','Social'],['week','Weekly board'],['ach','Achievements']];
+/* four parts side by side, on one line even on a small phone: today's quests, the social quests on X, the weekly TP board and the achievements */
+const QTABS=[['daily','Daily'],['social','Social'],['week','Weekly'],['ach','Achievements']];
 /* a social quest opened on X and not done yet waits to be checked and claimed */
 const socialClaimable=()=>{const d=QK.data;if(!G||!d||!d.socialOn||!Array.isArray(d.social))return false;const sd=(G.quests&&G.quests.sd)||[];return d.social.some(s=>!sd.includes(s.id)&&openedAt(s.id)>0);};
 function viewQuests(){
