@@ -2,6 +2,17 @@
    in a plain list and fixes come last, quietly. A patch the player has not seen yet lights a dot on the Codex tab and puts a card on
    the Tower screen, until the Patch notes page is opened. To add a patch, put a new entry at the top of PATCHES. Loaded before ui.js */
 const PATCHES=[
+  {v:'1.1',date:'2026-11-07',title:'Weekly board, achievements and quests on X',
+    big:[
+      {art:'tp',t:'Weekly TP board',d:'Every Tower Point you claim from a quest or a milestone counts on a board that starts over each Monday at 00:00 UTC. The top 10 wallets of the week get chests, blind bags and food bags. In Quests.'},
+      {art:'win_pet',t:'Achievements',d:'86 goals that last the whole climb, from your first wins to floor 500, every pet at 5 stars and a full Legendary set. Each one pays coins and chests once, and your badges show on your profile. In Quests.'},
+      {art:'x_logo',t:'Social quests on X',d:'Connect your X account and earn Tower Points for following, liking, reposting, replying and posting. The game only reads your account and never posts for you. In Quests, on the Social tab next to Daily.'},
+    ],
+    more:[
+      'Your Squeeks are checked by themselves when you sign in with a wallet, so a new Squeek or a new merge level shows up without pressing anything.',
+      'Follow Hamster Tower on X from the start screen or the top bar.',
+    ],
+    fixes:[]},
   {v:'1.0',date:'2026-11-06',title:'Squeeks, SQK and Quests',
     big:[
       {art:'squeek',t:'Squeek pets',d:'Bring your Squeek NFTs into the tower. A Squeek in your wallet or deposited in Staking fights as a pet, drawn from its own on-chain picture. Its traits pick its element, role and skills, and each merge level counts as a star. One Squeek per team. Find them in Team.'},

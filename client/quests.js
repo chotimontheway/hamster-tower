@@ -3,7 +3,9 @@
    Loaded before ui.js: only the listener below runs on load, everything else runs later */
 const QK={data:null,at:0,loading:false,admin:null,edit:null,del:null,open:{}};
 /* a new player in this tab starts with nothing of the last one's quests, social list or admin screen */
-function questReset(){Object.assign(QK,{data:null,at:0,loading:false,admin:null,edit:null,del:null,open:{}});}
+function questReset(){Object.assign(QK,{data:null,at:0,loading:false,admin:null,edit:null,del:null,open:{}});Object.assign(QW,{pub:null,me:null,at:0,loading:false});UI.qtab='daily';}
+/* WEEKLY TP BOARD: this week's board and the player's place, read when its tab opens and again after half a minute, see lib/tpweek.js */
+const QW={pub:null,me:null,at:0,loading:false};
 /* today's list. The server's day counts: a list it sent is today's until its own midnight, even when this device's clock is a little off */
 const qToday=()=>{
   const q=G&&G.quests;if(!q||!Array.isArray(q.list))return null;
@@ -37,12 +39,22 @@ function questGo(x){
 const resetIn=()=>{const s=QK.data?Math.max(0,QK.data.reset-Math.floor((Date.now()-QK.at)/1000)):0;return Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m';};
 
 /* SCREEN */
+/* four parts side by side: today's quests, the social quests on X, the weekly TP board and the achievements */
+const QTABS=[['daily','Daily'],['social','Social'],['week','Weekly board'],['ach','Achievements']];
+/* a social quest opened on X and not done yet waits to be checked and claimed */
+const socialClaimable=()=>{const d=QK.data;if(!G||!d||!d.socialOn||!Array.isArray(d.social))return false;const sd=(G.quests&&G.quests.sd)||[];return d.social.some(s=>!sd.includes(s.id)&&openedAt(s.id)>0);};
 function viewQuests(){
+  const tab=UI.qtab||'daily',dot=k=>(k==='daily'?questClaimable():k==='social'?socialClaimable():k==='ach'?achClaimable():!!(QW.me&&QW.me.unclaimed))?'<i class="dot" aria-hidden="true"></i>':'';
+  const head=`<div class="head-row"><h1>Quests</h1><span class="tp-pill num" title="Tower Points">${pic('tp','')}${fmt(G.tp||0)} TP</span></div>
+    <div class="tabs q-tabs" role="group" aria-label="Quest sections">${QTABS.map(([k,l])=>`<button class="chipb${tab===k?' on':''}" data-act="q-tab" data-k="${k}"${tab===k?' aria-pressed="true"':' aria-pressed="false"'}>${l}${dot(k)}</button>`).join('')}</div>`;
+  if(tab==='week')return head+questWeek();
+  if(tab==='ach')return head+questAch();
   if(!QK.data||Date.now()-QK.at>30000)loadQuests();
-  const q=qToday(),d=QK.data;
-  const head=`<div class="head-row"><h1>Quests</h1><span class="tp-pill num" title="Tower Points">${pic('tp','')}${fmt(G.tp||0)} TP</span></div>`;
+  const d=QK.data;
+  if(tab==='social')return head+(d?questSocial(d)+(d.dev?'<div class="btns"><button class="btn ghost" data-act="q-admin">Manage social quests</button></div>':''):'<section class="box"><p class="note">Loading social quests...</p></section>');
+  const q=qToday();
   if(!q)return head+'<section class="box"><p class="note">Loading today\'s quests...</p></section>';
-  return head+questDaily(q,d)+questSocial(d)+(d&&d.dev?'<div class="btns"><button class="btn ghost" data-act="q-admin">Manage social quests</button></div>':'');
+  return head+questDaily(q,d);
 }
 function questDaily(q,d){
   const band=questBand(q.top),ms=qMs(q),done=q.list.filter(questDone).length,sqk=!!(d&&d.sqk&&band.sqk),n=q.list.length;
@@ -164,8 +176,77 @@ document.addEventListener('change',e=>{
   if(e.target&&e.target.id==='qa-kind'&&QK.edit){const keep=qaRead();Object.assign(QK.edit,keep,{kind:e.target.value,tp:SOCIAL_KINDS[e.target.value].tp});render();}
 });
 
+async function loadWeek(force){
+  if(QW.loading||(!force&&QW.pub&&Date.now()-QW.at<30000))return;
+  QW.loading=true;
+  const who=PLAYER&&PLAYER.id;
+  try{
+    /* the week in the address means the CDN never keeps last week's board past Monday */
+    const [pub,me]=await Promise.all([api('/api/tpweek?w='+weekKey(Date.now())),api('/api/tpweek/me')]);
+    if(!PLAYER||PLAYER.id!==who)return;
+    QW.pub=pub;QW.me=me;QW.at=Date.now();
+    if(me.unclaimed)await claimWeek();
+  }catch(e){if(PLAYER&&PLAYER.id===who)fail(e);}
+  finally{QW.loading=false;}
+  if(UI.view==='quests'&&UI.qtab==='week'&&!SP)render();
+}
+/* a finished week pays its top 10 wallets the next time they open the game, the sheet waits like the Daily Challenge's */
+async function weekCheck(){
+  const who=PLAYER&&PLAYER.id;if(!who)return;
+  try{const me=await api('/api/tpweek/me');if(!PLAYER||PLAYER.id!==who)return;QW.me=me;if(me.unclaimed)await claimWeek();}catch(e){}
+}
+async function claimWeek(){
+  const j=await api('/api/tpweek/claim',{});
+  if(j.state)applyState(j.state);
+  if(QW.me)QW.me.unclaimed=false;
+  if(j.prizes&&j.prizes.length){UI.prizesWaiting=(UI.prizesWaiting||[]).concat(j.prizes.map(p=>Object.assign({week:p.week},p)));showPrizes();}
+  else if(j.state&&!UI.sheet&&!BT&&!SP)render();
+}
+const weekLeft=ends=>{const s=Math.max(0,ends-Math.floor(Date.now()/1000)),d=Math.floor(s/86400),h=Math.floor(s%86400/3600);return d?`${d}d ${h}h`:`${h}h ${Math.floor(s%3600/60)}m`;};
+const weekDay=k=>new Date(k+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+const prizeText=p=>`${p.n>1?p.n+' '+CHESTS[p.chest].n+'s':'1 '+CHESTS[p.chest].n}, ${p.bags} blind bags, ${p.food} food bags`;
+function questWeek(){
+  if(!QW.pub||Date.now()-QW.at>30000)loadWeek();
+  const p=QW.pub,m=QW.me;
+  if(!p)return '<section class="box"><p class="note">Loading the weekly board...</p></section>';
+  const me=m?`<div class="wk-me"><span class="wk-tp">${pic('tp','')}<b class="num">${fmt(m.tp)} TP</b> this week</span><span class="num">${m.dev?'A dev wallet is not ranked':m.rank?`Rank ${fmt(m.rank)}${m.wallet?'':', sign in with a wallet to be paid'}`:'Claim quest TP to get on the board'}</span></div>`:'';
+  const rows=p.top.map((r,i)=>`<li class="${PLAYER&&r.id===PLAYER.id?'me':''}"><b class="num">${i+1}</b>${rankName(r,'w'+i)}<span class="rk-floor num">${fmt(r.tp)} TP</span></li>`).join('');
+  const won=p.last&&p.last.winners&&p.last.winners.length?`<section class="box"><h2>Last week's winners</h2><p class="note">The week of ${weekDay(p.last.week)}. These wallets were paid.</p>
+    <ol class="rank">${p.last.winners.map((r,i)=>`<li class="${PLAYER&&r.id===PLAYER.id?'me':''}"><b class="num">${i+1}</b>${rankName(r,'l'+i)}<span class="rk-floor num">${fmt(r.tp)} TP</span></li>`).join('')}</ol></section>`:'';
+  return `<section class="box wk">
+    <div class="head-row"><h2 style="flex:1 1 auto">Weekly TP board</h2><span class="pill num">Resets in ${weekLeft(p.ends)}</span></div>
+    <p class="note">Every Tower Point you claim from a quest or a milestone this week counts. The board starts over every Monday at 00:00 UTC.</p>
+    ${me}
+    ${rows?`<ol class="rank">${rows}</ol>`:'<p class="empty-note">Nobody has claimed TP this week yet. Claim yours to lead.</p>'}
+    ${p.total>p.top.length?`<p class="note num">${fmt(p.total)} players on the board this week.</p>`:''}
+  </section>
+  <section class="box"><h2>Weekly rewards</h2>
+    <ul class="wk-prizes">${p.prizes.map((x,i)=>`<li><b class="num">${i===0?'Rank 1':`Ranks ${p.prizes[i-1].to+1} to ${x.to}`}</b><span>${prizeText(x)}</span></li>`).join('')}</ul>
+    <p class="note">Only wallets are paid: a guest on the board is skipped and the next wallet moves up. The rewards arrive the next time you open the game after the week ends.</p></section>
+  ${won}`;
+}
+/* ACHIEVEMENTS: goals that last, read from the save with the same code as the server, see ACHS in shared/data.js */
+const achClaimable=()=>!!G&&achList(G).some(a=>a.done&&!a.got);
+function questAch(){
+  const L=achList(G),S={},order=s=>s.done&&!s.got?0:s.got?2:1;
+  ACHS.forEach((a,i)=>{S[a.id]=L[i];});
+  const card=a=>{const s=S[a.id];return `<div class="ach${s.got?' got':s.done?' ready':''}"><span class="ach-pic">${picL(a.art,'')}</span>
+    <span class="ach-tx"><b>${a.n}</b><small>${a.d}</small>${s.got?'':`<span class="qbar" aria-hidden="true"><i style="width:${Math.round(s.have/s.need*100)}%"></i></span><small class="num">${fmt(s.have)} of ${fmt(s.need)}</small>`}</span>
+    <span class="ach-side"><em class="num">${fmt(a.r.coins)} coins, ${a.r.n>1?a.r.n+' '+CHESTS[a.r.chest].n+'s':CHESTS[a.r.chest].n}</em>${s.got?'<span class="qc-ok">Claimed</span>':s.done?`<button class="btn sm" data-act="ach-claim" data-id="${a.id}">Claim</button>`:''}</span></div>`;};
+  /* in each group: ready to claim first, then the goals still open in the order they come, the claimed ones last */
+  const groups=ACH_GROUPS.map(g=>{
+    const list=ACHS.filter(a=>g.k.includes(a.k)).sort((x,y)=>order(S[x.id])-order(S[y.id]));
+    return `<div class="ach-g"><div class="sec-t">${g.n} <small class="num">${list.filter(a=>S[a.id].got).length} of ${list.length}</small></div><div class="ach-list">${list.map(card).join('')}</div></div>`;
+  }).join('');
+  const ready=L.filter(s=>s.done&&!s.got).length;
+  return `<section class="box">
+    <div class="head-row"><h2 style="flex:1 1 auto">Achievements</h2><span class="pill num">${L.filter(x=>x.got).length} of ${ACHS.length}</span></div>
+    <p class="note">Goals that last, each paid once. Your badges show on your profile. Floors, wins, pets, gear and Tower Points count from the start, everything else from Patch 1.1 on.${ready?` <b class="num">${ready} ready to claim.</b>`:''}</p>
+    ${groups}</section>`;
+}
 function questBurst(t,color){if(!t)return;const b=t.getBoundingClientRect();FX.burst(b.left+b.width/2,b.top+b.height/2,color||'#FFE27A',16,260,'star',8,700);}
 const QUEST_ACT={
+  'q-tab'(d){UI.qtab=d.k;render();window.scrollTo(0,0);if(d.k==='week')return loadWeek(true);},
   async 'q-claim'(d,t){
     const j=await api('/api/quests/claim',{i:+d.i});
     if(j.state)applyState(j.state);

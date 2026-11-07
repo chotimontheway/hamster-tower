@@ -76,6 +76,28 @@ async function squeekIds(wallet){
   }
   return out;
 }
+/* a wallet's Squeeks are checked quietly when it signs in, at most every few hours, so a new Squeek or a new merge level shows up
+   without pressing anything. Nothing is said when the check fails, the button on the Team screen still works */
+const SQ_AUTO_MS=6*3600000;
+const sqSig=()=>Object.keys(G.owned).filter(isSq).sort().map(k=>{const s=G.owned[k].sq||{};return k+':'+s.lv+':'+(s.gone?1:0)+':'+G.owned[k].star;}).join(',');
+async function sqAuto(){
+  const wal=PLAYER&&PLAYER.wallet;if(!wal||UI.sqBusy)return;
+  const key='ht-sq-auto:'+wal;let last=0;try{last=+localStorage.getItem(key)||0;}catch(e){}
+  if(Date.now()-last<SQ_AUTO_MS)return;
+  try{localStorage.setItem(key,String(Date.now()));}catch(e){}
+  try{
+    const ids=await squeekIds(wal);
+    if(!PLAYER||PLAYER.wallet!==wal)return;
+    const had=new Set(Object.keys(G.owned).filter(k=>isSq(k)&&sqUsable(G,k))),sig=sqSig();
+    const j=await api('/api/squeek/sync',{ids});
+    if(!PLAYER||PLAYER.wallet!==wal)return;
+    if(j.state)applyState(j.state);
+    await SQ.load(j.found||[]);
+    const fresh=(j.found||[]).filter(id=>!had.has('sq'+id));
+    if(fresh.length)toast(`Found ${fresh.length>1?fresh.length+' new Squeeks':'a new Squeek'}: ${fresh.map(x=>'#'+x).join(', ')}. ${fresh.length>1?'They are':'It is'} in Team`);
+    if(sqSig()!==sig&&!SP&&!BT)render();
+  }catch(e){}
+}
 async function action(type,args){
   const j=await api('/api/action',Object.assign({type,requestId:newReqId()},args||{}));
   if(j.state)applyState(j.state);
@@ -129,7 +151,7 @@ function refreshSound(){
 function navBar(){
   const eq=equippedUids(G);
   const merge=G.items.some(it=>!eq.has(it.uid)&&canMerge(G,it));
-  const tabs=[['tower','Tower','nav_tower',canSweep(G,Date.now())],['team','Team','nav_team',G.team.some(id=>{const o=G.owned[id];return isFull(o)||feedPlan(G.foods,o.full,stomach(o.lv)).fills;})],['shop','Shop','nav_shop',G.coins>=BAG_COST||(!foodTotal()&&G.coins>=FOOD_BAGS[0].cost*3)],['items','Inventory','nav_items',merge||chestTotal(G)>0||sqkOf(G).box>0||sqkOf(G).pouch.length>0],['quests','Quests','nav_quest',questClaimable()||!qToday()],['ranks','Ranks','nav_rank',false],['codex','Codex','nav_codex',patchNew()]];
+  const tabs=[['tower','Tower','nav_tower',canSweep(G,Date.now())],['team','Team','nav_team',G.team.some(id=>{const o=G.owned[id];return isFull(o)||feedPlan(G.foods,o.full,stomach(o.lv)).fills;})],['shop','Shop','nav_shop',G.coins>=BAG_COST||(!foodTotal()&&G.coins>=FOOD_BAGS[0].cost*3)],['items','Inventory','nav_items',merge||chestTotal(G)>0||sqkOf(G).box>0||sqkOf(G).pouch.length>0],['quests','Quests','nav_quest',questClaimable()||!qToday()||achClaimable()||socialClaimable()],['ranks','Ranks','nav_rank',false],['codex','Codex','nav_codex',patchNew()]];
   /* seven tabs on a narrow phone: Inventory shortens to Items */
   const label=l=>l==='Inventory'?'<span class="nv-l">Inventory</span><span class="nv-s">Items</span>':l;
   return `<nav class="nav gut" aria-label="Screens"><div class="nav-in">${tabs.map(([v,l,a,d])=>`<button data-act="nav" data-v="${v}" aria-label="${l}" class="${UI.view===v||(v==='tower'&&UI.view==='arena')||(v==='quests'&&UI.view==='qadmin')?'on':''}"${UI.view===v?' aria-current="page"':''}>${pic(a,'')}${label(l)}${d?'<i class="dot" aria-hidden="true"></i>':''}</button>`).join('')}</div></nav>`;
@@ -416,12 +438,13 @@ function sheetPrizes(s){
   const rows=s.prizes.map(p=>{
     const foods={};p.results.forEach(r=>{if(r.kind==='food')foods[r.id]=(foods[r.id]||0)+1;});
     const cards=p.results.filter(r=>r.kind!=='food').concat(Object.keys(foods).map(id=>({kind:'food',id,k:foods[id]})));
-    return `<div class="sec-t">Rank ${fmt(p.rank)} on ${when(p.day)}</div>
-      <div class="rewards">${chestCards([p.chest])}</div>
+    return `<div class="sec-t">${p.week?`Rank ${fmt(p.rank)} on the weekly TP board, week of ${when(p.week)}`:`Rank ${fmt(p.rank)} in the Daily Challenge on ${when(p.day)}`}</div>
+      <div class="rewards">${chestCards(Array(p.n||1).fill(p.chest))}</div>
       ${cards.length?`<div class="reveal">${cards.map((r,i)=>revealCard(r,i)).join('')}</div>`:''}
       ${p.coins?`<p class="note num">Your inventory was full, so ${fmt(p.coins)} coins came instead of blind bags.</p>`:''}`;
   }).join('');
-  return `<h2>Daily Challenge rewards</h2><p>You finished in the top 10 wallets. The bags are already open and the chest is in your inventory.</p>${rows}
+  const weekly=s.prizes.every(p=>p.week),daily=s.prizes.every(p=>!p.week);
+  return `<h2>${weekly?'Weekly TP board rewards':daily?'Daily Challenge rewards':'Your rewards'}</h2><p>You finished in the top 10 wallets. The bags are already open and the chests are in your inventory.</p>${rows}
     <div class="btns"><button class="btn" data-act="to-chests">Open chests</button><button class="btn ghost" data-act="close">Done</button></div>`;
 }
 /* the wheel and the challenge are only read while the Tower screen is open, and not more often than this. The Arena's screen reads the wheel too, because it opens with him */
@@ -1536,6 +1559,8 @@ function sheetPlayer(s){
       <dt>Playing since</dt><dd>${TIME_STR(p.since)}</dd></dl>
     <div class="sec-t">Team</div>
     <div class="stack" style="gap:6px">${team}</div>
+    <div class="sec-t">Achievements${p.ach?` <small class="num">${p.ach.length} of ${ACHS.length}</small>`:''}</div>
+    ${p.ach&&p.ach.length?`<div class="badges">${p.ach.map(id=>ACHS.find(a=>a.id===id)).filter(Boolean).map(a=>`<span class="badge" title="${a.n}: ${a.d}">${pic(a.art,'')}<small>${a.n}</small></span>`).join('')}</div>`:'<p class="note">No achievements yet.</p>'}
     <div class="sec-t">Legendaries</div>
     <p class="num">${p.legendaries.length?`Pets: ${p.legendaries.map(id=>PETS[id].n).join(', ')}.`:'No legendary pets.'} Legendary gear: ${fmt(p.legendaryGear)}.</p>
     ${p.drops.length?`<ul class="prof-drops">${p.drops.map(x=>`<li>${dropName(x)}<small class="num">${agoText(x.at)}</small></li>`).join('')}</ul>`:''}
@@ -2104,6 +2129,12 @@ const ACT={
     }catch(e){fail(e);}
     finally{UI.sqBusy=false;render();}
   },
+  async 'ach-claim'(d,t){
+    const j=await action('ach',{id:d.id});
+    SND.play('levelup');questBurst(t,'#FFE27A');
+    toast(`+${fmt(j.r.coins)} coins and ${j.r.n>1?j.r.n+' '+CHESTS[j.r.chest].n+'s':'a '+CHESTS[j.r.chest].n}`);
+    render();
+  },
   async 'sq-real'(d){const uri=await SQ.realPic(d.id);if(!uri){toast('Could not load the on-chain picture right now');return;}UI.sqReal={id:+d.id,uri};render();},
   gear(d){UI.sheet={type:'gear',id:d.id,slot:d.slot};render();const s=$('.sheet');if(s)s.scrollTop=0;},
   async equip(d){await action('equip',{id:d.id,uid:+d.uid});SND.play('clink');UI.sheet={type:'pet',id:d.id};render();},
@@ -2206,15 +2237,17 @@ async function afterLogin(){
   UI.daily=null;UI.dailyAt=0;UI.liveAt=0;UI.arena=null;UI.arenaAt=0;UI.arenaBoard=null;
   UI.view='tower';UI.block=null;render();window.scrollTo(0,0);
   skResume();
+  /* a finished week may wait to pay, and a wallet's Squeeks are checked quietly every few hours */
+  weekCheck();sqAuto();
 }
-/* back from X's own sign in: say how it went, show the Quests tab, and clean the address. The words only ever reach a toast as text */
+/* back from X's own sign in: say how it went, show the Social tab of Quests, and clean the address. The words only ever reach a toast as text */
 function xReturn(){
   let p;try{p=new URLSearchParams(location.search);}catch(e){return;}
   const x=p.get('x');if(!x)return;
   try{history.replaceState(null,'',location.pathname+location.hash);}catch(e){}
   if(x==='signin'){toast('Sign in first, then connect X');return;}
   if(!G)return;
-  UI.view='quests';render();loadQuests(true);
+  UI.view='quests';UI.qtab='social';render();loadQuests(true);
   toast(x==='connected'?`Your X account @${String(p.get('name')||'').slice(0,15)} is connected`:String(p.get('why')||'Could not connect X, please try again').slice(0,200));
 }
 async function boot(){

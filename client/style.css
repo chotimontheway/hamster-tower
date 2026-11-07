@@ -1179,3 +1179,38 @@ html.busy::after{content:"";position:fixed;inset:0 0 auto;height:3px;z-index:100
 .pn-old summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;cursor:pointer}
 .pn-st{font-weight:700}
 @media (prefers-reduced-motion:reduce){.pn-hi{animation:none}}
+/* Patch 1.1: the Quests tab's parts, the weekly TP board, achievements and the badges on a profile */
+.q-tabs .chipb{position:relative}
+.q-tabs .dot{top:-5px;left:auto;right:-5px}
+.wk-me{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap;background:var(--card);border:2px solid var(--line2);border-radius:10px;padding:8px 12px;font-weight:600}
+.wk-tp{display:inline-flex;align-items:center;gap:7px}
+.wk-tp img{width:26px;height:26px}
+.wk-tp b{font:800 19px/1 var(--f-d);color:#E2CCFF}
+.wk-prizes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.wk-prizes li{display:grid;grid-template-columns:118px minmax(0,1fr);gap:10px;align-items:center;background:var(--card);border:2px solid var(--line);border-radius:9px;padding:6px 10px;font-size:13.5px}
+.wk-prizes b{font:700 15px/1.1 var(--f-d);color:var(--gold2)}
+.ach-g{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+.ach-g .sec-t small{font:600 13px/1 var(--f-b);color:var(--muted);margin-left:4px}
+.ach-list{display:flex;flex-direction:column;gap:8px}
+.ach{display:grid;grid-template-columns:52px minmax(0,1fr) auto;align-items:center;gap:10px;background:var(--night);border:3px solid var(--line2);border-radius:12px;padding:8px 10px}
+.ach-pic img{width:52px;height:52px;object-fit:contain;display:block}
+.ach-tx{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ach-tx b{font:700 16px/1.15 var(--f-d)}
+.ach-tx small{color:var(--muted)}
+.ach-side{display:flex;flex-direction:column;align-items:flex-end;gap:5px;text-align:right}
+.ach-side em{font-style:normal;font:700 13px/1.2 var(--f-d);color:var(--gold2);max-width:160px}
+.ach-side .btn{min-height:36px;padding:2px 14px;font-size:14.5px}
+.ach.ready{border-color:var(--gold);box-shadow:0 0 14px rgba(255,201,77,.45)}
+.ach.got{border-color:#2F8F5E;background:linear-gradient(90deg,rgba(53,208,127,.1),var(--night) 60%)}
+.ach.got .ach-pic img{opacity:.85}
+.badges{display:flex;flex-wrap:wrap;gap:8px}
+.badge{display:flex;flex-direction:column;align-items:center;gap:3px;width:76px;text-align:center}
+.badge img{width:48px;height:48px;object-fit:contain;background:var(--night);border:2px solid var(--gold);border-radius:12px;padding:4px}
+.badge small{font:600 11px/1.15 var(--f-b);color:var(--soft)}
+@media (max-width:560px){
+  .ach{grid-template-columns:44px minmax(0,1fr)}
+  .ach-pic img{width:44px;height:44px}
+  .ach-side{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:space-between;text-align:left}
+  .ach-side em{max-width:none}
+  .wk-prizes li{grid-template-columns:1fr;gap:2px}
+}

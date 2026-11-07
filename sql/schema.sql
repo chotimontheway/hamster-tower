@@ -94,6 +94,15 @@ CREATE TABLE IF NOT EXISTS daily_scores (
   PRIMARY KEY (day, player_id)
 ) WITH (fillfactor = 70);
 CREATE INDEX IF NOT EXISTS daily_board ON daily_scores (day, rounds, hp DESC, at) WHERE rounds IS NOT NULL;
+-- The Tower Points each player claimed in a week, named by its Monday (UTC). Who got there first breaks a tie, see lib/tpweek.js
+CREATE TABLE IF NOT EXISTS tp_weeks (
+  week      text NOT NULL,
+  player_id bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  tp        int NOT NULL DEFAULT 0,
+  at        timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (week, player_id)
+) WITH (fillfactor = 70);
+CREATE INDEX IF NOT EXISTS tp_weeks_board ON tp_weeks (week, tp DESC, at);
 
 -- Log of first clears, for checking cheats. The plans are cleared after 30 days, floor and timing stay
 CREATE TABLE IF NOT EXISTS battle_log (

@@ -577,6 +577,12 @@ const DAILY_TRIES=3,LIVE_BONUS=.2,LIVE_MINUTES=30;
 /* the top of the board when a day ends. Food bags are the kind that suits the team's lowest level */
 const DAILY_PRIZES=[{to:1,chest:4,bags:3,food:10},{to:3,chest:3,bags:2,food:6},{to:10,chest:2,bags:1,food:3}];
 const dailyPrize=rank=>DAILY_PRIZES.find(p=>rank<=p.to)||null;
+/* WEEKLY TP BOARD: the Tower Points a player claims from Monday 00:00 UTC to the next Monday. A week is named by its Monday. The top 10
+   wallets of a finished week are paid like the Daily Challenge, with n chests of the given kind, see lib/tpweek.js */
+const WEEK_PRIZES=[{to:1,chest:4,n:2,bags:5,food:15},{to:3,chest:4,n:1,bags:3,food:10},{to:10,chest:3,n:1,bags:2,food:6}];
+const weekPrize=rank=>WEEK_PRIZES.find(p=>rank<=p.to)||null;
+function weekKey(ms){const d=new Date(ms),back=(d.getUTCDay()+6)%7;return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()-back)).toISOString().slice(0,10);}
+const weekEnd=key=>Date.parse(key+'T00:00:00Z')+7*864e5;
 function dailyG(ch){
   const owned={};ch.team.forEach(id=>{owned[id]=Object.assign(newPet(ch.lv),{star:ch.star});});
   return {team:ch.team,owned,items:[],battles:0,top:1e9};
@@ -746,7 +752,7 @@ function creditSqkChest(G,day){
 const sqkChestRoom=()=>SQK_CHEST.gear.n[1]+SQK_CHEST.bags.n[1];
 function openSqkChest(G){
   const q=sqkOf(G);if(!(q.box>0))return null;
-  q.box--;
+  q.box--;lifeAdd(G,'sqkbox',1);
   const s=G.rs,C=SQK_CHEST,out={kind:'sqk',chests:[0,0,0,0,0],food:[],bags:[],gear:[],pet:null};
   for(let i=nIn(C.chests.n,s);i>0;i--){const t=wPick(C.chests.w,s);out.chests[t]++;G.chests[t]++;}
   const low=Math.min(...G.team.map(id=>G.owned[id].lv)),tier=Math.max(0,FOOD_BAGS.findIndex(b=>low>=b.a&&(!b.b||low<b.b)));
@@ -774,6 +780,7 @@ function rollPouch(f,s){
 function openPouch(G){
   const q=sqkOf(G);if(!q.pouch.length)return null;
   const f=q.pouch.shift(),r=rollPouch(f,G.rs);
+  lifeAdd(G,'pouch',1);
   if(!r)return {kind:'pouch',floor:f,luck:0,amount:0};
   q.earned+=r.amount;
   return {kind:'pouch',floor:f,luck:r.k,amount:r.amount};
@@ -785,9 +792,13 @@ const sqkText=u=>{const v=Math.round(u/SQK_UNIT*100)/100;return v.toLocaleString
 function questOf(G){
   const q=G.quests&&typeof G.quests==='object'?G.quests:(G.quests={});
   if(!Array.isArray(q.list))q.list=[];if(!Array.isArray(q.got))q.got=[];if(!Array.isArray(q.sd))q.sd=[];if(!q.so||typeof q.so!=='object')q.so={};
+  /* life counts what a player did since Patch 1.1, for achievements: Arena fights, Daily tries, sweeps, chests, wheel runs, bags, quests
+     claimed, days with the last milestone claimed, gear merges that worked, social quests, SQK Chests and pouches, weeks in the top 10 or first */
+  if(!q.life||typeof q.life!=='object'||Array.isArray(q.life))q.life={};
   q.swap=q.swap|0;
   return q;
 }
+const lifeAdd=(G,k,n)=>{const l=questOf(G).life;l[k]=Math.max(0,Math.floor(+l[k]||0))+Math.max(0,Math.floor(+n||0));};
 const questBand=top=>{let i=0;QUEST_BANDS.forEach((b,k)=>{if(top>=b.from)i=k;});return Object.assign({i},QUEST_BANDS[i]);};
 /* how many finished quests each milestone needs: one, half and all of them */
 const questMs=n=>[...new Set([1,Math.ceil(n/2),n])];
@@ -819,6 +830,7 @@ function ensureQuests(G,ctx){
 /* something happened that a quest may count. Returns the quests it finished, whose TP waits for the player to claim it */
 function questOn(G,ctx,ev){
   const q=ensureQuests(G,ctx),fin=[];
+  if(ev.k!=='win')lifeAdd(G,ev.k,ev.n||1);
   for(const x of q.list){
     if(questDone(x))continue;
     const was=x.have;
@@ -836,7 +848,7 @@ function questOn(G,ctx,ev){
 function claimQuestTp(G,ctx,i){
   const q=ensureQuests(G,ctx),x=q.list[i];
   if(!x||!questDone(x)||x.paid)return null;
-  x.paid=1;G.tp=(G.tp||0)+(x.tp||0);
+  x.paid=1;G.tp=(G.tp||0)+(x.tp||0);lifeAdd(G,'quest',1);
   return {q:i,tp:x.tp||0};
 }
 /* a milestone pays once. sqk says whether this player may get SQK, which a guest or a dev wallet may not */
@@ -847,6 +859,7 @@ function claimQuest(G,ctx,i,sqk){
   let amount=0;
   if(i===ms.length-1&&band.sqk&&sqk){const L=SQK_POUCH.luck[wPick(SQK_POUCH.luck.map(l=>l[1]),G.rs)];amount=Math.round((band.sqk[0]+(band.sqk[1]-band.sqk[0])*L[0])*SQK_UNIT);sqkOf(G).earned+=amount;}
   G.tp=(G.tp||0)+tp;q.got.push(i);
+  if(i===ms.length-1)lifeAdd(G,'days',1);
   return {i,tp,sqk:amount};
 }
 /* one quest a day may be traded for another kind, for example an Arena quest on a day the Arena never opens */
@@ -865,8 +878,54 @@ function socialReward(G,quest,sqk){
   const q=questOf(G);let amount=0;
   if(sqk&&quest.sqkP>0&&rnd(G.rs)<quest.sqkP)amount=Math.round(Math.round(quest.sqkMax*(.2+.8*rnd(G.rs))*100)/100*SQK_UNIT);
   if(amount)sqkOf(G).earned+=amount;
-  G.tp=(G.tp||0)+quest.tp;q.sd.push(quest.id);delete q.so[quest.id];
+  G.tp=(G.tp||0)+quest.tp;q.sd.push(quest.id);delete q.so[quest.id];lifeAdd(G,'social',1);
   return {tp:quest.tp,sqk:amount};
+}
+/* ACHIEVEMENTS: what each one counts, read from the save, see ACHS in shared/data.js. The ids already paid sit in gifts.ach */
+const achNeed=a=>a.v||(a.k==='rar'?PETS_LIST.filter(p=>p.rar===a.m).length:PETS_LIST.length);
+/* what the goals read from a save, worked out once for the whole list in one pass over the items: the pets, the best plus of a piece
+   of each rarity or better, and the full sets each pet wears. A full set is all 4 pieces of one set; it is also a full set of a rarity
+   when all 4 are of that rarity */
+function achCtx(G){
+  const own=Object.keys(G.owned||{}),pets=own.filter(id=>!isSq(id)),worn=new Map(),top=RAR_ORDER.map(()=>-1);
+  for(const id of own){const g=G.owned[id].gear||{};for(const s of Object.keys(g))worn.set(g[s],null);}
+  for(const it of G.items||[]){const r=RAR_ORDER.indexOf(it.rar);if(r>=0&&(it.plus|0)>top[r])top[r]=it.plus|0;if(worn.has(it.uid))worn.set(it.uid,it);}
+  for(let r=top.length-2;r>=0;r--)top[r]=Math.max(top[r],top[r+1]);
+  const sets=own.map(id=>{
+    const c={},g=G.owned[id].gear||{};
+    for(const s of Object.keys(g)){const it=worn.get(g[s]);if(!it)continue;c[it.set]=(c[it.set]||0)+1;c[it.set+'|'+it.rar]=(c[it.set+'|'+it.rar]||0)+1;}
+    const full=Object.keys(c).filter(k=>c[k]>=4);
+    return {any:full.some(k=>!k.includes('|')),rar:full.filter(k=>k.includes('|')).map(k=>k.split('|')[1])};
+  });
+  return {own,pets,sets,top};
+}
+function achHave(G,a,X){
+  const {own,pets,sets,top}=X||achCtx(G),O=id=>G.owned[id];
+  switch(a.k){
+    case 'top':return G.top|0;
+    case 'tp':return Math.floor(+G.tp||0);
+    case 'pets':return pets.length;
+    case 'rar':return pets.filter(id=>PETS[id]&&PETS[id].rar===a.m).length;
+    /* a Squeek's stars are its merge level on the chain, so they are not counted here */
+    case 'star':return pets.reduce((m,id)=>Math.max(m,O(id).star|0),0);
+    case 'stars':return pets.filter(id=>(O(id).star|0)>=a.m).length;
+    case 'lv':return own.reduce((m,id)=>Math.max(m,O(id).lv|0),0);
+    case 'lvs':return own.filter(id=>(O(id).lv|0)>=a.m).length;
+    /* one piece of gear of rarity m or better, at +p or more */
+    case 'gear':return top[Math.max(0,RAR_ORDER.indexOf(a.m))]>=(a.p|0)?1:0;
+    case 'set4':return sets.filter(s=>a.m?s.rar.includes(a.m):s.any).length;
+    case 'wins':return G.wins|0;
+    case 'sq':return own.some(id=>isSq(id)&&sqUsable(G,id))?1:0;
+    default:return Math.floor(+questOf(G).life[a.k]||0);
+  }
+}
+const achGot=G=>{const g=G.gifts&&typeof G.gifts==='object'?G.gifts:(G.gifts={});if(!Array.isArray(g.ach))g.ach=[];return g.ach;};
+const achList=G=>{const X=achCtx(G),got=achGot(G);return ACHS.map(a=>{const need=achNeed(a),have=achHave(G,a,X);return {id:a.id,have:Math.min(have,need),need,done:have>=need,got:got.includes(a.id)};});};
+function claimAch(G,id){
+  const a=ACHS.find(x=>x.id===id);if(!a)return null;
+  const got=achGot(G);if(got.includes(id)||achHave(G,a)<achNeed(a))return null;
+  const n=a.r.n||1;got.push(id);G.coins+=a.r.coins||0;G.chests[a.r.chest]+=n;
+  return {id,coins:a.r.coins||0,chest:a.r.chest,n};
 }
 const equippedUids=G=>new Set(Object.values(G.owned).flatMap(o=>Object.values(o.gear)));
 function itemName(it){return SETS[it.set].n+' '+SLOTS[it.slot].n+(it.plus?' +'+it.plus:'');}
@@ -880,7 +939,7 @@ function tryMerge(G,uid){
   const it=itemByUid(G,uid);if(!it||!canMerge(G,it))return null;
   const two=sameItems(G,it).slice(0,2).map(x=>x.uid),chance=mergeChance(it);
   G.items=G.items.filter(x=>!two.includes(x.uid));
-  const ok=rnd(G.rs)<chance;if(ok)it.plus++;
+  const ok=rnd(G.rs)<chance;if(ok){it.plus++;lifeAdd(G,'merge',1);}
   return {ok,plus:it.plus,chance,uid};
 }
 function mergeAll(G){

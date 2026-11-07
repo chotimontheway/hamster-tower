@@ -5,8 +5,8 @@
   "description": "A turn-based tower climb where every round of real work by the Squeekchain hamster is a floor",
   "engines": { "node": ">=22 <25" },
   "scripts": {
-    "dev": "node scripts/build.js && node scripts/dev.js",
-    "start": "node scripts/build.js && node scripts/dev.js",
+    "dev": "node scripts/build.js && node --env-file-if-exists=.env scripts/dev.js",
+    "start": "node scripts/build.js && node --env-file-if-exists=.env scripts/dev.js",
     "build": "node scripts/build.js",
     "export": "node scripts/build.js --export",
     "sync": "node scripts/sync.js",
