@@ -74,10 +74,10 @@ async function alertsLoad(){
   if(UI.view==='quests'&&UI.qtab==='daily'&&!SP)render();
 }
 function alertsBox(){
-  if(!alertsOk())return alertsIos()&&!alertsHome()?`<section class="box al-box"><div class="head-row"><h2 style="flex:1 1 auto">Alerts</h2></div><p class="note">To get alerts on an iPhone, press Share, choose Add to Home Screen, then open Hamster Tower from the new icon.</p></section>`:'';
+  if(!alertsOk())return alertsIos()&&!alertsHome()?`<section class="box al-box"><div class="head-row">${pic('bell','','al-bell')}<h2 style="flex:1 1 auto">Alerts</h2></div><p class="note">To get alerts on an iPhone, press Share, choose Add to Home Screen, then open Hamster Tower from the new icon.</p></section>`:'';
   alertsLoad();
   const tg=(k,t)=>`<button class="chipb${AL[k]?' on':''}" data-act="al-pref" data-k="${k}" aria-pressed="${AL[k]}">${t}</button>`;
-  return `<section class="box al-box"><div class="head-row"><h2 style="flex:1 1 auto">Alerts</h2><span class="pill">${AL.on?'On':'Off'}</span></div>
+  return `<section class="box al-box"><div class="head-row">${pic('bell','','al-bell')}<h2 style="flex:1 1 auto">Alerts</h2><span class="pill">${AL.on?'On':'Off'}</span></div>
     <p class="note">Get a message when the Arena opens, and a reminder of unclaimed daily quests in the evening. Free, and you can turn them off any time.</p>
     ${AL.on?`<div class="tabs">${tg('arena','Arena opens')}${tg('quests','Quest reminder')}</div><div class="btns"><button class="btn ghost" data-act="al-off"${AL.busy?' disabled':''}>Turn off alerts</button></div>`
     :`<div class="btns"><button class="btn" data-act="al-on"${AL.busy?' disabled':''}>Turn on alerts</button></div>`}

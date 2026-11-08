@@ -4,7 +4,7 @@
 const PATCHES=[
   {v:'1.2',date:'2026-11-08',title:'Alerts and an easier first fight',
     big:[
-      {art:'nav_quest',t:'Alerts',d:'Get a message when the Arena opens and a reminder of unclaimed daily quests in the evening. Turn them on in Quests, on the Daily part. On an iPhone, add the game to the Home Screen first.'},
+      {art:'bell',t:'Alerts',d:'Get a message when the Arena opens and a reminder of unclaimed daily quests in the evening. Turn them on in Quests, on the Daily part. On an iPhone, add the game to the Home Screen first.'},
       {art:'nav_tower',t:'An easier first fight',d:'New players now start with one clear card and a single button into floor 1, and the rest of the Tower screen shows up after the first clear.'},
     ],
     more:[],
