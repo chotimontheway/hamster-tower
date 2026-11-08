@@ -358,7 +358,13 @@ function liveText(){
 const liveSpin=()=>{const l=UI.live;return l&&l.running&&l.rpm?clamp(60/l.rpm,.3,4)+'s':'1.6s';};
 function liveStrip(){
   const x=liveText();
-  return `<section class="sweep live ${x.c}" id="live" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2 id="live-t">${x.t}</h2><p id="live-d">${x.d}</p></div><a class="btn ghost sm" href="https://sepolia.squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a></section>`;
+  return `<section class="sweep live ${x.c}" id="live" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2 id="live-t">${x.t}</h2><p id="live-d">${x.d}</p></div><div class="live-btns">${liveAlert()}<a class="btn ghost sm" href="https://sepolia.squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a></div></section>`;
+}
+/* the alert button sits right here, next to the wheel it is about: a bell to turn alerts on, and a quiet note once they are on. The settings are in Quests */
+function liveAlert(){
+  if(!alertsOk())return '';
+  alertsLoad();
+  return AL.on?`<span class="live-al on">${pic('bell','','al-bell')}Alerts on</span>`:`<button class="btn sm live-al" data-act="al-on"${AL.busy?' disabled':''}>${pic('bell','','al-bell')}Turn on alerts</button>`;
 }
 function applyLive(){
   const el=$('#live');if(!el)return;
