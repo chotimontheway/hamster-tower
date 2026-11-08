@@ -148,7 +148,7 @@ const sqInfo=id=>{const s=PETS[id]&&PETS[id].sq;return s?{id:s.id,t:s.t,lv:s.lv}
 function startBattle(G,node,floors,opts){
   opts=opts||{};
   useSqueeks(G);
-  const B={node:{floor:node.floor,round:node.round,work:node.work,type:node.type,boss:node.boss,hash:node.hash},hf:node.daily||node.arena?0:node.floor,h:node.daily||node.arena?0:hardAt(node.floor),units:[],round:0,queue:[],actIndex:0,over:null,rule:node.rule?RULES.find(r=>r.id===node.rule):null,rng:seedOf(opts.seed||(node.hash+':b:'+G.battles+':'+(opts.salt||''))),coinBonus:0,noReactP:false,reactP:0,dmgP:0,drowsyP:.3,first:node.floor>G.top,sandbox:!!opts.sandbox};
+  const B={node:{floor:node.floor,round:node.round,work:node.work,type:node.type,boss:node.boss,hash:node.hash},hf:node.daily||node.arena||node.wb?0:node.floor,h:node.daily||node.arena||node.wb?0:hardAt(node.floor),units:[],round:0,queue:[],actIndex:0,over:null,rule:node.rule?RULES.find(r=>r.id===node.rule):null,rng:seedOf(opts.seed||(node.hash+':b:'+G.battles+':'+(opts.salt||''))),coinBonus:0,noReactP:false,reactP:0,dmgP:0,drowsyP:.3,first:node.floor>G.top,sandbox:!!opts.sandbox};
   const res=teamResonance(G.team);
   let hpBonus=0,critBonus=0,dmgBonus=0;
   for(const r of res){
@@ -168,6 +168,8 @@ function startBattle(G,node,floors,opts){
   });
   if(opts.foe)addFoeTeam(B,opts.foe);
   else node.enemies.forEach((mid,i)=>B.units.push(makeEnemy(MONS[mid],i,node)));
+  /* the World Boss has the strength of a boss on floor WB.floor and many times its hit points, so no team beats it alone */
+  if(node.wb)for(const u of B.units)if(u.side==='e'){u.hp=u.hpMax=Math.round(u.hp*node.wb.mul);}
   for(const u of B.units){
     if(u.mods.startShield)u.st.shield={v:u.def*u.mods.startShield,t:2};
     if(u.mods.startDodge)u.st.dodge={v:1,t:3};
@@ -561,6 +563,46 @@ function finishWin(G,B,floors){
 }
 function dayKey(ms){return new Date(ms).toISOString().slice(0,10);}
 function canSweep(G,ms){return G.top>0&&G.sweepDay!==dayKey(ms);}
+/* THE WORLD BOSS: while the hamster runs, one boss for everyone stands for as long as the Arena is open. Each player fights it up to `tries`
+   times with the Arena's fixed levels. The damage of every fight adds up to one shared total, and when it reaches `pool` the boss falls. After
+   the run the players are paid: everyone who fought, everyone more if it fell, and the top 10 wallets by damage. See lib/worldboss.js */
+const WB={tries:3,pool:250000,mul:20,floor:40};
+const WB_PART={coins:500,chest:0,n:2},WB_KILL={coins:500,chest:2,n:1};
+const WB_PRIZES=[{to:1,coins:3000,chest:4,n:1},{to:3,coins:2000,chest:3,n:2},{to:10,coins:1000,chest:3,n:1}];
+const wbPrize=rank=>WB_PRIZES.find(p=>rank<=p.to)||null;
+const wbBossOf=session=>BOSS_LIST[Math.floor(rnd(seedOf('wb-boss:'+session))*BOSS_LIST.length)].id;
+function worldBossNode(session){
+  const s=seedOf('wb-map:'+session),wx=RULES.filter(r=>r.id!=='clear');
+  return {floor:WB.floor,boss:true,wb:{mul:WB.mul,session},round:0,work:450,blocks:43,type:'normal',hash:'wb'+session,t:0,gap:0,enemies:[wbBossOf(session)],rule:pick(wx,s).id,map:{t:Math.floor(rnd(s)*MAP_NAMES.length),tone:Math.floor(rnd(s)*TONE_NAMES.length)}};
+}
+/* the damage a fight did: what the boss lost, never more than it had */
+const wbDamage=B=>{const u=B.units.find(x=>x.side==='e');return u?Math.max(0,Math.min(Math.round(u.hpMax),Math.round(u.hpMax-Math.max(0,u.hp)))):0;};
+/* INVITES: a wallet shares its code, a new wallet that joins with it and climbs to floor `floor` pays both. The invited gets `referee`, the one
+   who invited gets `referrer` for each of up to `cap` friends. Paid ids are kept in the payer's own save (gifts.refPaid, gifts.refGot), see lib/referrals.js */
+const REF={floor:5,cap:20,referrer:{coins:1500,chest:3,n:1},referee:{coins:800,chest:2,n:1}};
+function refPay(G,r){G.coins+=r.coins;G.chests[r.chest]+=r.n;return {coins:r.coins,chest:r.chest,n:r.n};}
+/* LOGIN STREAK: one reward a UTC day for opening the game, bigger each day in a row for 7 days, then the week starts again at the top. A
+   missed day starts it from day 1. Kept in gifts.streak as the day last collected and the days in a row */
+const STREAK=[{coins:300,chest:0,n:1},{coins:500,chest:0,n:2},{coins:800,chest:1,n:1},{coins:1200,chest:1,n:2},{coins:1800,chest:2,n:1},{coins:2500,chest:2,n:2},{coins:4000,chest:3,n:2}];
+function streakOf(G){
+  const g=G.gifts&&typeof G.gifts==='object'?G.gifts:(G.gifts={});
+  const s=g.streak&&typeof g.streak==='object'&&!Array.isArray(g.streak)?g.streak:(g.streak={d:'',n:0});
+  s.n=Math.max(0,Math.floor(+s.n||0));if(typeof s.d!=='string')s.d='';
+  return s;
+}
+/* where the streak stands at this time: the days in a row so far, whether today can be collected, and the day it would be */
+function streakNow(G,ms){
+  const s=streakOf(G),today=dayKey(ms);
+  if(s.d===today)return {n:s.n,can:false,next:s.n+1};
+  const n=s.d===dayKey(ms-864e5)?s.n:0;
+  return {n,can:true,next:n+1,lost:s.n>1&&n===0};
+}
+function claimStreak(G,ms){
+  const st=streakNow(G,ms);if(!st.can)return null;
+  const s=streakOf(G),r=STREAK[(st.next-1)%STREAK.length];
+  s.d=dayKey(ms);s.n=st.next;G.coins+=r.coins;G.chests[r.chest]+=r.n;
+  return {day:st.next,pos:(st.next-1)%STREAK.length,coins:r.coins,chest:r.chest,n:r.n};
+}
 function doSweep(G,floors,ms){
   if(!canSweep(G,ms))return null;
   G.sweepDay=dayKey(ms);

@@ -151,7 +151,7 @@ function refreshSound(){
 function navBar(){
   const eq=equippedUids(G);
   const merge=G.items.some(it=>!eq.has(it.uid)&&canMerge(G,it));
-  const tabs=[['tower','Tower','nav_tower',canSweep(G,Date.now())],['team','Team','nav_team',G.team.some(id=>{const o=G.owned[id];return isFull(o)||feedPlan(G.foods,o.full,stomach(o.lv)).fills;})],['shop','Shop','nav_shop',G.coins>=BAG_COST||(!foodTotal()&&G.coins>=FOOD_BAGS[0].cost*3)],['items','Inventory','nav_items',merge||chestTotal(G)>0||sqkOf(G).box>0||sqkOf(G).pouch.length>0],['quests','Quests','nav_quest',questClaimable()||!qToday()||achClaimable()||socialClaimable()],['ranks','Ranks','nav_rank',false],['codex','Codex','nav_codex',patchNew()]];
+  const tabs=[['tower','Tower','nav_tower',canSweep(G,Date.now())||(G.top>0&&streakNow(G,Date.now()).can)||!!(RF.data&&RF.data.claimable>0)],['team','Team','nav_team',G.team.some(id=>{const o=G.owned[id];return isFull(o)||feedPlan(G.foods,o.full,stomach(o.lv)).fills;})],['shop','Shop','nav_shop',G.coins>=BAG_COST||(!foodTotal()&&G.coins>=FOOD_BAGS[0].cost*3)],['items','Inventory','nav_items',merge||chestTotal(G)>0||sqkOf(G).box>0||sqkOf(G).pouch.length>0],['quests','Quests','nav_quest',questClaimable()||!qToday()||achClaimable()||socialClaimable()],['ranks','Ranks','nav_rank',false],['codex','Codex','nav_codex',patchNew()]];
   /* seven tabs on a narrow phone: Inventory shortens to Items */
   const label=l=>l==='Inventory'?'<span class="nv-l">Inventory</span><span class="nv-s">Items</span>':l;
   return `<nav class="nav gut" aria-label="Screens"><div class="nav-in">${tabs.map(([v,l,a,d])=>`<button data-act="nav" data-v="${v}" aria-label="${l}" class="${UI.view===v||(v==='tower'&&UI.view==='arena')||(v==='quests'&&UI.view==='qadmin')?'on':''}"${UI.view===v?' aria-current="page"':''}>${pic(a,'')}${label(l)}${d?'<i class="dot" aria-hidden="true"></i>':''}</button>`).join('')}</div></nav>`;
@@ -321,10 +321,13 @@ function viewTower(){
       </div>
       ${pic('wheel_big','Squeektoshi on the wheel','hero-pet')}
     </section>
+    ${fresh?'':streakCard()}
+    ${fresh?'':inviteCard()}
     ${fresh?'':liveStrip()}
     ${fresh?'':patchCard()}
     ${fresh?'':dailyCard()}
     ${fresh?'':arenaCard()}
+    ${fresh?'':wbCard()}
     ${fresh?'':`<section class="sweep">
       ${pic(can?'chest_3':'chest_1','')}
       <div><h2>Daily Sweep</h2><p>${G.top===0?'Clear the first floor to unlock Sweep.':can?`Collect rewards from ${G.top} cleared floors right now: about ${fmt(sweepBase())} coins and a batch of chests. Once per day.`:`Already collected today. Available again in ${timeToReset()}. Replay cleared floors for more.`}</p></div>
@@ -420,6 +423,57 @@ function dailyLine(){
   return `Same team for everyone, fewest rounds wins. ${triesText(m.left)} left, and your first win today pays a ${CHESTS[ch.chest].n}.`;
 }
 const dailyDone=()=>!!(UI.daily&&UI.daily.me&&!UI.daily.me.left);
+/* LOGIN STREAK: seven days in a row, each paying more, shown on the Tower screen for a player who has cleared a floor */
+function streakCard(){
+  if(!G||G.top<1)return '';
+  const st=streakNow(G,Date.now()),L=STREAK.length;
+  const done=st.can?st.n%L:((st.n-1)%L)+1,today=st.can?(st.next-1)%L:-1;
+  const tiles=STREAK.map((r,i)=>`<div class="st-d${i<done?' got':''}${i===today?' now':''}"><small>Day ${i+1}</small>${pic('chest_'+(r.chest+1),'')}<b class="num">${r.n>1?'x'+r.n:''}</b><em class="num">${fmt(r.coins)}</em></div>`).join('');
+  const nx=STREAK[st.can?(st.next-1)%L:st.next%L];
+  return `<section class="box streak"><div class="head-row"><h2 style="flex:1 1 auto">Daily login</h2><span class="pill num">${st.can?(st.n?`${st.n} day${st.n>1?'s':''} in a row`:st.lost?'Start again':'Day 1'):`${st.n} day${st.n>1?'s':''} in a row`}</span></div>
+    <div class="st-row">${tiles}</div>
+    ${st.can?`<div class="btns"><button class="btn big pulse" data-act="streak-claim">Collect day ${st.next}</button></div>`:`<p class="note">Collected today. Come back tomorrow for ${nx.n>1?nx.n+' '+CHESTS[nx.chest].n+'s':'a '+CHESTS[nx.chest].n} and ${fmt(nx.coins)} coins. Miss a day and it starts again.</p>`}
+  </section>`;
+}
+/* INVITES: the link carries the inviter's code. It waits in this browser until a new wallet signs in, then is used once. The card shows the link,
+   the friends who joined and what is due, for a wallet that has cleared a floor */
+const RF={data:null,at:0,loading:false};
+function refCapture(){
+  try{
+    const p=new URLSearchParams(location.search),c=(p.get('ref')||'').trim().toLowerCase();
+    if(!c)return;
+    if(/^[0-9a-z]{5,14}$/.test(c))localStorage.setItem('ht-ref',c);
+    p.delete('ref');const q=p.toString();history.replaceState(null,'',location.pathname+(q?'?'+q:'')+location.hash);
+  }catch(e){}
+}
+async function refUse(){
+  let c=null;try{c=localStorage.getItem('ht-ref');}catch(e){}
+  if(!c||!PLAYER||!PLAYER.wallet||PLAYER.dev)return;
+  /* the code is used once whatever the answer: a player who already climbed or already joined has no use for it */
+  try{localStorage.removeItem('ht-ref');}catch(e){}
+  if(G.top>0)return;
+  try{const j=await api('/api/ref/use',{code:c});toast(`Invite saved. Clear floor ${j.floor} to get a ${CHESTS[j.reward.chest].n} and ${fmt(j.reward.coins)} coins.`);}catch(e){}
+}
+async function loadRef(force){
+  if(RF.loading||!PLAYER||!PLAYER.wallet||PLAYER.dev||(!force&&RF.data&&Date.now()-RF.at<60000))return;
+  RF.loading=true;const who=PLAYER.id;
+  try{const j=await api('/api/ref/me');if(PLAYER&&PLAYER.id===who){RF.data=j;RF.at=Date.now();}}catch(e){}
+  finally{RF.loading=false;}
+  if(UI.view==='tower'&&!SP)render();
+}
+const refLink=c=>SITE_URL.replace(/\/+$/,'')+'/?ref='+c;
+function inviteCard(){
+  if(!G||G.top<1||!PLAYER||!PLAYER.wallet||PLAYER.dev)return '';
+  loadRef();
+  const d=RF.data;if(!d||!d.wallet)return '';
+  const link=refLink(d.code),R=d.referrer,Y=d.referee,say=r=>`${r.n>1?r.n+' '+CHESTS[r.chest].n+'s':'a '+CHESTS[r.chest].n} and ${fmt(r.coins)} coins`;
+  const text=`I am climbing Hamster Tower, where every floor is a real round run by the @squeekchain hamster. Join with my link and we both get a chest:`;
+  return `<section class="box invite"><div class="head-row">${pic('nav_team','','al-bell')}<h2 style="flex:1 1 auto">Invite friends</h2><span class="pill num">${d.paid} of ${d.cap} paid</span></div>
+    <p class="note">Share your link. When a new wallet joins with it and clears floor ${d.floor}, you get ${say(R)} and they get ${say(Y)}.</p>
+    <div class="inv-link num" id="inv-link">${esc(link)}</div>
+    <div class="btns"><button class="btn" data-act="copy" data-t="${esc(link)}" data-el="inv-link">Copy link</button><a class="btn ghost" href="https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(link)}" target="_blank" rel="noopener noreferrer">Post on X</a>${d.claimable?`<button class="btn big pulse" data-act="ref-claim">Collect rewards</button>`:''}</div>
+    <p class="note num">${d.friends} friend${d.friends===1?'':'s'} joined, ${d.reached} cleared floor ${d.floor}.${d.joined&&!d.got&&d.mine<d.floor?` You joined with an invite: clear floor ${d.floor} to get ${say(Y)}.`:''}</p></section>`;
+}
 function dailyCard(){
   const ch=UI.daily&&UI.daily.pub.ch;
   return `<section class="sweep daily" id="daily">${pic(ch?'chest_'+(ch.chest+1):'chest_3','')}<div><h2>Daily Challenge</h2><p>${dailyLine()}</p></div><button class="btn${dailyDone()?' ghost':''}" data-act="sheet" data-type="daily"${ch?'':' disabled'}>${dailyDone()?'Results':'Play'}</button></section>`;
@@ -574,13 +628,13 @@ const artU=s=>s.side==='p'||s.pet?'pet_'+s.ref:artOf(s.ref);
 async function enterBattle(node,opts){
   opts=opts||{};
   /* practice runs on this device and counts for nothing. A real battle is played on the server */
-  const r=opts.sandbox?startBattle(G,node,FLOORS,opts):opts.daily?await api('/api/daily/start',{}):opts.arena?await api('/api/arena/start',{floor:opts.arena,run:arenaClaim()}):await api('/api/fight/start',{floor:node.floor});
+  const r=opts.sandbox?startBattle(G,node,FLOORS,opts):opts.daily?await api('/api/daily/start',{}):opts.wb?await api('/api/wb/start',{}):opts.arena?await api('/api/arena/start',{floor:opts.arena,run:arenaClaim()}):await api('/api/fight/start',{floor:node.floor});
   /* a Squeek on either side is drawn from its dots, so they are fetched before the battle is drawn */
   ensureSqueeks(r.B);
   const sqIds=r.B.units.filter(u=>u.sq).map(u=>u.sq.id);
   if(sqIds.length)await Promise.race([SQ.load(sqIds),new Promise(z=>setTimeout(z,6000))]);
   const minMs=r.minMs||0;
-  BT={B:r.B,node:r.node||node,sandbox:!!opts.sandbox,daily:!!opts.daily,arena:!!opts.arena,holder:r.holder||null,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token:r.token||null,turns:0,minMs,nextAt:Date.now()+minMs,sending:null,end:null};
+  BT={B:r.B,node:r.node||node,sandbox:!!opts.sandbox,daily:!!opts.daily,arena:!!opts.arena,wb:!!opts.wb,holder:r.holder||null,snap:r.init,playing:false,log:[],active:null,melee:false,plan:{},focus:null,lastT:{},token:r.token||null,turns:0,minMs,nextAt:Date.now()+minMs,sending:null,end:null};
   UI.view='battle';UI.sheet=null;
   tipHide();renderBattle();window.scrollTo(0,0);
   /* a Squeek lights up as the battle opens */
@@ -605,8 +659,8 @@ function renderBattle(){
   SND.music(n.boss?'boss':'battle');
   $('#app').innerHTML=`<div class="bt">
     <header class="bt-top gut"><div class="bt-top-in">
-      <h1>${BT.sandbox?'Practice':BT.daily?'Daily Challenge':BT.arena?'Arena floor '+B.node.floor:'Floor '+B.node.floor}</h1>
-      <div class="bt-tags">${BT.sandbox?'<span class="tag">No rewards</span>':BT.arena?arenaTags(n):floorTags(n)}<small class="num" id="rnd"></small></div>
+      <h1>${BT.sandbox?'Practice':BT.daily?'Daily Challenge':BT.wb?'World Boss':BT.arena?'Arena floor '+B.node.floor:'Floor '+B.node.floor}</h1>
+      <div class="bt-tags">${BT.sandbox?'<span class="tag">No rewards</span>':BT.wb?'<span class="tag">World Boss</span>':BT.arena?arenaTags(n):floorTags(n)}<small class="num" id="rnd"></small></div>
       <div class="bt-order" id="order" aria-label="Turn order by Speed"></div>
       <div class="bt-ctl"><button class="btn ghost sm" data-act="quality" id="qbtn" title="Effect quality">${lv===2?'High':lv===1?'Medium':'Low'}</button><button class="btn ghost sm" data-act="speed" id="spd">x${speed()}</button>${soundBtn()}${musicBtn()}<button class="btn ghost sm" data-act="leave" id="leave">Leave</button></div>
     </div></header>
@@ -919,10 +973,11 @@ async function fightTurn(me){
 /* the server has already booked the result by the time the last turn plays out */
 function endBattle(){
   const b=BT,B=b.B,e=b.end;
-  const out={win:B.over==='win',res:e&&e.res||null,floor:B.node.floor,boss:B.node.boss,sandbox:b.sandbox,node:b.node,saved:!!e,dup:!!(e&&e.dup),daily:b.daily?e.daily:null,arena:b.arena&&e?e.arena:null,holder:b.holder,rounds:e&&e.rounds,team:B.units.filter(u=>u.side==='p').map(u=>u.ref)};
+  const out={win:B.over==='win',res:e&&e.res||null,floor:B.node.floor,boss:B.node.boss,sandbox:b.sandbox,node:b.node,saved:!!e,dup:!!(e&&e.dup),daily:b.daily?e.daily:null,arena:b.arena&&e?e.arena:null,wb:b.wb&&e?e.wb:null,holder:b.holder,rounds:e&&e.rounds,team:B.units.filter(u=>u.side==='p').map(u=>u.ref)};
   if(e&&e.state)applyState(e.state);
   if(b.daily&&UI.daily){UI.daily.me=e.daily;UI.dailyAt=0;}
   if(b.arena){UI.arenaAt=0;UI.arenaBoard=null;loadArena();}
+  if(b.wb)WBS.at=0;
   SND.music('tower',1.6);
   UI.result=out;leaveBattle();UI.view='result';UI.block=null;render();window.scrollTo(0,0);
   SND.play(out.win?'win':'lose');if(out.win&&out.res&&out.res.coins)setTimeout(()=>SND.play('coins'),760);
@@ -946,6 +1001,7 @@ function viewResult(){
   const r=UI.result;
   if(!r)return '';
   if(r.daily)return viewDailyResult(r);
+  if(r.wb)return viewWbResult(r);
   if(r.arena)return viewArenaResult(r);
   if(r.sandbox)return `<section class="res ${r.win?'win':''}">${pic(r.win?'win_pet':'hurt_pet','')}<h1>${r.win?'Practice won':'Practice lost'}</h1><p>Practice battles give no rewards.</p><div class="btns"><button class="btn" data-act="try-again">Fight again</button><button class="btn ghost" data-act="nav" data-v="codex">Back to the Codex</button></div></section>`;
   if(r.win&&!r.res)return `<section class="res win">${pic('win_pet','')}<h1>Battle saved</h1><p>This battle was already recorded.</p><div class="btns"><button class="btn big" data-act="nav" data-v="tower">Back to the tower</button></div></section>`;
@@ -1349,6 +1405,44 @@ function arenaLine(){
   if(!a)return `Beat the team on a floor and take its place. ${gate}`;
   return `${a.floor?`You hold floor ${a.floor} of ${ARENA.floors}.`:'Beat a team to take its floor.'} ${gate} ${a.left?`${triesText(a.left)} left today.`:`New tries in ${timeToReset()}.`}`;
 }
+/* THE WORLD BOSS: one boss for everyone while the hamster runs. The card shows its shared health, the player's own damage and fights left, and
+   after the run the rewards to collect. Read when the Tower screen opens and every half minute after */
+const WBS={data:null,me:null,at:0,loading:false};
+async function loadWb(){
+  if(WBS.loading||!PLAYER||(WBS.data&&Date.now()-WBS.at<30000))return;
+  WBS.loading=true;const who=PLAYER.id;
+  try{const [d,m]=await Promise.all([api('/api/wb'),api('/api/wb/me')]);if(PLAYER&&PLAYER.id===who){WBS.data=d;WBS.me=m;WBS.at=Date.now();}}
+  catch(e){}
+  finally{WBS.loading=false;}
+  if(UI.view==='tower'&&!SP)render();
+}
+const wbDmg=n=>fmt(Math.round(n));
+function wbBar(b){const left=Math.max(0,b.pool-b.dmg);return `<span class="qbar wb-bar" aria-hidden="true"><i style="width:${Math.max(0,Math.min(100,left/b.pool*100)).toFixed(1)}%"></i></span>`;}
+function wbCard(){
+  if(!G||!PLAYER)return '';
+  loadWb();
+  const d=WBS.data,m=WBS.me;if(!d||!d.boss)return '';
+  const b=d.boss,mon=MONS[b.id];if(!mon)return '';
+  const owed=m&&m.owed>0?`<button class="btn big pulse" data-act="wb-claim">Collect rewards</button>`:'';
+  const plural=(n,w)=>n+' '+w+(n===1?'':'s');
+  if(!d.active)return `<section class="box wb"><div class="head-row">${pic(artOf(b.id),'','wb-pic')}<h2 style="flex:1 1 auto">World Boss</h2><span class="pill">Resting</span></div>
+    <p class="note">${esc(mon.n)} ${b.killed?'fell last time':'held out last time'}: ${wbDmg(Math.min(b.dmg,b.pool))} of ${wbDmg(b.pool)} damage from ${plural(d.players,'player')}. A new boss comes a few minutes after the hamster starts running.</p>${owed?`<div class="btns">${owed}</div>`:''}</section>`;
+  const left=Math.max(0,Math.round(d.until-Date.now()/1000)),mine=m?m.dmg:0,tries=m?m.left:d.tries;
+  const top=d.top.slice(0,3).map((r,i)=>`<li class="${PLAYER&&r.id===PLAYER.id?'me':''}"><b class="num">${i+1}</b>${rankName(r,'wb'+i)}<span class="rk-floor num">${wbDmg(r.dmg)}</span></li>`).join('');
+  return `<section class="box wb on"><div class="head-row">${pic(artOf(b.id),'','wb-pic')}<div style="flex:1 1 auto"><h2>World Boss: ${esc(mon.n)}</h2><small class="num">${b.dmg>=b.pool?'It has fallen, keep hitting for the board':`${wbDmg(Math.max(0,b.pool-b.dmg))} of ${wbDmg(b.pool)} health left`}</small></div><span class="pill num">${clockText(left)}</span></div>
+    ${wbBar(b)}
+    <p class="note num">Your damage: ${wbDmg(mine)}. ${plural(tries,'fight')} left. ${plural(d.players,'player')} fighting.</p>
+    ${top?`<ol class="rank wb-top">${top}</ol>`:''}
+    <div class="btns"><button class="btn big" data-act="wb-fight"${tries?'':' disabled'}>${tries?'Fight the boss':'No fights left'}</button>${owed}</div></section>`;
+}
+function viewWbResult(r){
+  const x=r.wb,d=WBS.data,b=d&&d.boss,mon=b&&MONS[b.id],left=x.left;
+  const back=`<button class="btn ghost" data-act="nav" data-v="tower">Back to the tower</button>`;
+  return `<section class="res ${x.dmg>0?'win':''}">${pic(mon?artOf(b.id):'win_pet','')}<h1>${wbDmg(x.dmg)} damage</h1>
+    <p class="num">${x.dev?'This is a dev wallet, so it leaves nothing on the board. ':''}${x.killed?'The boss has fallen!':`The boss has ${wbDmg(Math.max(0,x.pool-x.total))} of ${wbDmg(x.pool)} health left.`} You did ${wbDmg(x.mine)} in all${x.rank?`, rank ${fmt(x.rank)} among wallets`:''}.</p>
+    <p>${left?`${left} fight${left===1?'':'s'} left.`:'No fights left. Collect your rewards after the hamster stops.'}</p>
+    <div class="btns">${left&&!x.dev?`<button class="btn big" data-act="wb-fight">Fight again</button>`:''}${x.dmg>0?`<button class="btn" data-act="share">Share on X</button>`:''}${back}</div></section>`;
+}
 function arenaCard(){
   const off=G.top<ARENA.unlock,on=arenaOpenNow();UI.arenaShown=arenaNow().s;
   return `<section class="sweep arena${on&&!off?' on':''}" id="arena-card">${pic('arena','')}<div><h2>Arena Tower</h2><p>${arenaLine()}</p></div><button class="btn${off||on?'':' ghost'}" data-act="nav" data-v="arena"${off?' disabled':''}>${off?'Locked':on?'Climb':'View'}</button></section>`;
@@ -1473,7 +1567,7 @@ function viewArenaResult(r){
   return `<section class="res win">${pic('win_pet','')}<h1>You took floor ${x.target}!</h1>
     <p class="num">${x.from?`You came from floor ${x.from}.`:'You are now in the tower.'} ${left}</p>
     ${chest?`<div class="rewards">${chestCards([arenaPrize(x.floor).chest])}</div><p>Hold a floor like this until the day ends for a ${chest}${PLAYER&&!PLAYER.wallet?'. Only wallets are paid, so sign in with one to qualify':''}.</p>`:''}
-    <div class="btns">${open}${back}</div></section>`;
+    <div class="btns"><button class="btn big" data-act="share">Share on X</button>${open}${back}</div></section>`;
 }
 
 /* LEADERBOARD */
@@ -1609,6 +1703,16 @@ const CAN_SHARE_FILES=(()=>{try{return !!(navigator.canShare&&navigator.canShare
 const IS_TOUCH=!!(window.matchMedia&&matchMedia('(pointer:coarse)').matches);
 function shareInfo(){
   const r=UI.result,n=r.node;
+  if(r.wb&&r.wb.dmg>0){
+    const x=r.wb,mon=WBS.data&&WBS.data.boss&&MONS[WBS.data.boss.id];
+    return {file:'hamster-tower-world-boss',title:'World Boss',big:`${wbDmg(x.dmg)} damage`,sub:`${mon?mon.n+', ':''}${x.killed?'it fell':wbDmg(Math.max(0,x.pool-x.total))+' health left'}. ${wbDmg(x.mine)} in all${x.rank?`, rank ${fmt(x.rank)}`:''}`,from:'Everyone fights the same boss while the real hamster runs',team:G.team.map(id=>({id,lv:ARENA.lv})),
+      text:`I hit the Hamster Tower World Boss for ${wbDmg(x.dmg)} damage while the @squeekchain hamster ran. Everyone shares one boss, come and help:`};
+  }
+  if(r.arena&&r.win){
+    const x=r.arena;
+    return {file:'hamster-tower-arena-floor-'+x.target,title:'Arena Tower',big:`Took Arena floor ${fmt(x.target)}`,sub:x.from?`Moved up from floor ${fmt(x.from)} of ${ARENA.floors}`:`Now holding a floor of ${ARENA.floors}`,from:'Fought live while the real hamster ran',team:G.team.map(id=>({id,lv:ARENA.lv})),
+      text:`I took floor ${fmt(x.target)} of the Hamster Tower Arena while the @squeekchain hamster ran. Come and take it back:`};
+  }
   if(r.daily){
     const ch=UI.daily.pub.ch;
     return {file:'hamster-tower-challenge',title:'Daily Challenge',big:`Won in ${roundsText(r.rounds)}`,sub:`${r.daily.hp}% HP left${r.daily.rank?`, rank ${fmt(r.daily.rank)} today`:''}. Same team for everyone.`,from:`Built from round ${n.round} of the real hamster, ${fmt(n.work)} work`,team:r.team.map(id=>({id,lv:ch.lv})),
@@ -1621,6 +1725,7 @@ async function drawShare(info){
   const W=1200,H=630,c=document.createElement('canvas');c.width=W;c.height=H;
   const x=c.getContext('2d');
   await Promise.all([document.fonts.load('800 80px "Baloo 2"'),document.fonts.load('600 30px "Be Vietnam Pro"'),document.fonts.load('500 24px "Be Vietnam Pro"')]);
+  info.team=info.team.filter(t=>!isSq(t.id));
   const [bg,icon,...pets]=await Promise.all([loadImg(artUri('scene')),loadImg(artUri('logo')),...info.team.map(t=>loadImg(artUri('pet_'+t.id)))]);
   const k=Math.max(W/bg.width,H/bg.height);
   x.drawImage(bg,(W-bg.width*k)/2,(H-bg.height*k)/2,bg.width*k,bg.height*k);
@@ -2145,6 +2250,32 @@ const ACT={
     }catch(e){fail(e);}
     finally{UI.sqBusy=false;render();}
   },
+  async 'ref-claim'(d,t){
+    const j=await api('/api/ref/claim',{});
+    if(j.state)applyState(j.state);
+    if(!j.paid&&!j.got){toast('Nothing to collect yet');await loadRef(true);return;}
+    SND.play('levelup');questBurst(t,'#FFE27A');
+    toast(`${j.paid?`${j.paid} friend${j.paid>1?'s':''} cleared floor ${REF.floor}: +${fmt(j.coins)} coins and ${j.chests} chest${j.chests>1?'s':''}. `:''}${j.got?`Your invite paid +${fmt(j.got.coins)} coins and ${j.got.n} chest${j.got.n>1?'s':''}.`:''}`.trim());
+    await loadRef(true);render();
+  },
+  'wb-fight'(){UI.result=null;return enterBattle({floor:40,boss:true,enemies:[WBS.data&&WBS.data.boss?WBS.data.boss.id:'alarm_clock']},{wb:true});},
+  async 'wb-claim'(d,t){
+    const j=await api('/api/wb/claim',{});
+    if(j.state)applyState(j.state);
+    WBS.at=0;
+    if(!j.runs||!j.runs.length){toast('Nothing to collect yet');return loadWb();}
+    SND.play('levelup');questBurst(t,'#FFE27A');
+    const coins=j.runs.reduce((a,r)=>a+r.coins,0),ch=[0,0,0,0,0];j.runs.forEach(r=>r.chests.forEach((n,i)=>{ch[i]+=n;}));
+    const names=ch.map((n,i)=>n?`${n} ${CHESTS[i].n}${n>1?'s':''}`:'').filter(Boolean).join(', ');
+    toast(`World Boss: +${fmt(coins)} coins and ${names}${j.runs.some(r=>r.rank&&r.prize)?', a place prize':''}`);
+    await loadWb();render();
+  },
+  async 'streak-claim'(d,t){
+    const j=await action('streak',{});
+    SND.play('levelup');questBurst(t,'#FFE27A');
+    toast(`Day ${j.r.day}: +${fmt(j.r.coins)} coins and ${j.r.n>1?j.r.n+' '+CHESTS[j.r.chest].n+'s':'a '+CHESTS[j.r.chest].n}`);
+    render();
+  },
   async 'ach-claim'(d,t){
     const j=await action('ach',{id:d.id});
     SND.play('levelup');questBurst(t,'#FFE27A');
@@ -2254,7 +2385,7 @@ async function afterLogin(){
   UI.view='tower';UI.block=null;render();window.scrollTo(0,0);
   skResume();
   /* a finished week may wait to pay, and a wallet's Squeeks are checked quietly every few hours */
-  weekCheck();sqAuto();
+  weekCheck();sqAuto();refUse().then(()=>loadRef(true));
 }
 /* back from X's own sign in: say how it went, show the Social tab of Quests, and clean the address. The words only ever reach a toast as text */
 function xReturn(){
@@ -2267,6 +2398,7 @@ function xReturn(){
   toast(x==='connected'?`Your X account @${String(p.get('name')||'').slice(0,15)} is connected`:String(p.get('why')||'Could not connect X, please try again').slice(0,200));
 }
 async function boot(){
+  refCapture();
   FX.init($('#fxc'),speed,()=>{const b=$('#qbtn');const l=FX.Q.level;if(b)b.textContent=l===2?'High':l===1?'Medium':'Low';if(BT)WX.reseed();});
   if(PREF.fxLevel!==undefined)FX.setLevel(PREF.fxLevel,true);
   else if((navigator.deviceMemory&&navigator.deviceMemory<=3)||(navigator.hardwareConcurrency&&navigator.hardwareConcurrency<=4))FX.setLevel(1);

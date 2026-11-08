@@ -2,6 +2,17 @@
    in a plain list and fixes come last, quietly. A patch the player has not seen yet lights a dot on the Codex tab and puts a card on
    the Tower screen, until the Patch notes page is opened. To add a patch, put a new entry at the top of PATCHES. Loaded before ui.js */
 const PATCHES=[
+  {v:'1.3',date:'2026-11-08',title:'World Boss, daily login and invites',
+    big:[
+      {art:'boss_neighbor_cat',t:'World Boss',d:'When the hamster runs, one boss stands for everyone. Fight it up to 3 times, every hit adds to its shared health, and when the run ends you are paid for fighting, more if it fell, and the top 10 wallets by damage win prizes. On the Tower screen.'},
+      {art:'chest_3',t:'Daily login',d:'Open the game on 7 days in a row for a bigger chest each day. Miss a day and the week starts again. On the Tower screen.'},
+      {art:'nav_team',t:'Invite friends',d:'Share your link with a friend. When their new wallet clears floor 5, you get a Gold Chest and 1,500 coins and they get a Silver Chest and 800 coins. On the Tower screen, for wallets.'},
+    ],
+    more:[
+      'Share a picture on X when you take an Arena floor or hit the World Boss.',
+      'Alerts also tell you when the World Boss is up.',
+    ],
+    fixes:[]},
   {v:'1.2',date:'2026-11-08',title:'Alerts and an easier first fight',
     big:[
       {art:'bell',t:'Alerts',d:'Get a message when the Arena opens and a reminder of unclaimed daily quests in the evening. Turn them on in Quests, on the Daily part. On an iPhone, add the game to the Home Screen first.'},

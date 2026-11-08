@@ -230,3 +230,36 @@ CREATE TABLE IF NOT EXISTS push_subs (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS push_subs_player ON push_subs (player_id);
+
+-- Who invited whom. A player is invited once; the rewards are paid from each player's own save when the invited one reaches floor 5
+CREATE TABLE IF NOT EXISTS referrals (
+  referee_id  bigint PRIMARY KEY REFERENCES players (id) ON DELETE CASCADE,
+  referrer_id bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals (referrer_id, at);
+
+-- The World Boss: one row for each run of the hamster with the damage everyone has done to it so far, one row for each player who fought it,
+-- and one for each finished fight, so a fight is only ever counted once
+CREATE TABLE IF NOT EXISTS world_boss (
+  session   bigint PRIMARY KEY,
+  boss      text NOT NULL,
+  pool      bigint NOT NULL,
+  dmg       bigint NOT NULL DEFAULT 0,
+  killed_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS world_boss_dmg (
+  session   bigint NOT NULL REFERENCES world_boss (session) ON DELETE CASCADE,
+  player_id bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  dmg       bigint NOT NULL DEFAULT 0,
+  tries     int NOT NULL DEFAULT 0,
+  at        timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (session, player_id)
+);
+CREATE INDEX IF NOT EXISTS world_boss_dmg_board ON world_boss_dmg (session, dmg DESC, at);
+CREATE TABLE IF NOT EXISTS world_boss_log (
+  id        text PRIMARY KEY,
+  session   bigint NOT NULL,
+  player_id bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  dmg       int NOT NULL
+);

@@ -1231,3 +1231,22 @@ html.busy::after{content:"";position:fixed;inset:0 0 auto;height:3px;z-index:100
 .live-al .al-bell{width:22px;height:22px}
 @media (max-width:560px){.live-btns{grid-column:1/-1;flex-direction:row}.live-btns>*{flex:1 1 0;min-width:0}}
 @media (max-width:359px){.live-al.btn{font-size:13px;padding:2px 6px;gap:4px}.live-al .al-bell{width:18px;height:18px}}
+/* the login streak */
+.streak{display:flex;flex-direction:column;gap:10px}
+.st-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+.st-d{display:flex;flex-direction:column;align-items:center;gap:1px;background:var(--night);border:2px solid var(--line2);border-radius:10px;padding:5px 2px;text-align:center}
+.st-d small{font:600 10.5px/1.1 var(--f-b);color:var(--muted)}
+.st-d img{width:100%;max-width:38px;height:auto;aspect-ratio:1;object-fit:contain}
+.st-d b{font:800 12px/1 var(--f-d);color:var(--gold2);min-height:12px}
+.st-d em{font-style:normal;font:700 10.5px/1 var(--f-d);color:var(--soft)}
+.st-d.got{border-color:#2F8F5E;background:linear-gradient(180deg,rgba(53,208,127,.14),var(--night));opacity:.85}
+.st-d.now{border-color:var(--gold);box-shadow:0 0 12px rgba(255,201,77,.5)}
+.invite{display:flex;flex-direction:column;gap:10px}
+.inv-link{background:var(--night);border:2px solid var(--line2);border-radius:10px;padding:8px 10px;font-size:13px;overflow-wrap:anywhere;user-select:all}
+/* the World Boss card */
+.wb{display:flex;flex-direction:column;gap:8px}
+.wb.on{border-color:var(--red)}
+.wb-pic{width:54px;height:54px;object-fit:contain;flex:none}
+.wb-bar{height:16px}
+.wb-bar i{background:linear-gradient(90deg,#F0506E,#FF8A5C)}
+.wb-top{margin:0}
