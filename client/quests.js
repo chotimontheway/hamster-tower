@@ -63,6 +63,7 @@ const alertsOk=()=>'serviceWorker' in navigator&&'PushManager' in window&&'Notif
 const alertsIos=()=>/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 const alertsHome=()=>{try{return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;}catch(e){return false;}};
 const keyBytes=t=>{const p=t.replace(/-/g,'+').replace(/_/g,'/'),b=atob(p+'='.repeat((4-p.length%4)%4));return Uint8Array.from(b,c=>c.charCodeAt(0));};
+const alertsHelp=p=>p==='denied'?'Notifications are blocked for this site. Click the icon left of the address (the lock or settings icon), set Notifications to Allow, then press the button again.':'Your browser did not show the question. Click the bell or lock icon in the address bar, choose Allow for Notifications, then press the button again.';
 async function alertsSub(){const reg=await navigator.serviceWorker.register('/sw.js');await navigator.serviceWorker.ready;return {reg,sub:await reg.pushManager.getSubscription()};}
 /* what this browser already has, read once when the box first shows */
 async function alertsLoad(){
@@ -276,7 +277,9 @@ const QUEST_ACT={
   async 'al-on'(){
     if(AL.busy)return;AL.busy=true;AL.why='';render();
     try{
-      if(await Notification.requestPermission()!=='granted'){AL.why='Alerts are blocked for this site in your browser. Allow notifications in the browser settings, then try again.';return;}
+      /* a site that was blocked before gets no question at all, and a browser may hide the question behind a bell in the address bar: say where to allow it */
+      const was=Notification.permission,got=was==='granted'?was:await Notification.requestPermission();
+      if(got!=='granted'){AL.why=alertsHelp(got);toast(AL.why);return;}
       const {reg,sub}=await alertsSub(),key=(await api('/api/push/key')).key;
       const s=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(key)});
       const j=await api('/api/push/subscribe',Object.assign(s.toJSON(),{arena:AL.arena,quests:AL.quests}));

@@ -114,7 +114,7 @@ function fail(e){
   SND.play('deny');
   toast((e&&e.message)||'Something went wrong, please try again');
 }
-function toast(text){const old=$('.toast');if(old)old.remove();const d=document.createElement('div');d.className='toast';d.setAttribute('role','status');d.textContent=text;document.body.appendChild(d);setTimeout(()=>d.remove(),2200);}
+function toast(text){const old=$('.toast');if(old)old.remove();const d=document.createElement('div');d.className='toast';d.setAttribute('role','status');d.textContent=text;document.body.appendChild(d);setTimeout(()=>d.remove(),Math.max(2200,Math.min(9000,String(text).length*60)));}
 const ownerOf=uid=>{for(const id of Object.keys(G.owned)){const g=G.owned[id].gear;for(const s of Object.keys(g))if(g[s]===uid)return id;}return null;};
 const curFloor=()=>Math.min(G.top+1,FLOORS.length);
 const allClear=()=>G.top>=FLOORS.length;
@@ -360,11 +360,11 @@ function liveStrip(){
   const x=liveText();
   return `<section class="sweep live ${x.c}" id="live" style="--spin:${liveSpin()}"><span class="live-wheel">${WHEEL_ICON}</span><div><h2 id="live-t">${x.t}</h2><p id="live-d">${x.d}</p></div><div class="live-btns">${liveAlert()}<a class="btn ghost sm" href="https://sepolia.squeekchain.com/" target="_blank" rel="noopener noreferrer">Watch him</a></div></section>`;
 }
-/* the alert button sits right here, next to the wheel it is about: a bell to turn alerts on, and a quiet note once they are on. The settings are in Quests */
+/* the alert button sits right here, next to the wheel it is about: a bell to turn alerts on and the same place to turn them off. The settings are in Quests */
 function liveAlert(){
   if(!alertsOk())return '';
   alertsLoad();
-  return AL.on?`<span class="live-al on">${pic('bell','','al-bell')}Alerts on</span>`:`<button class="btn sm live-al" data-act="al-on"${AL.busy?' disabled':''}>${pic('bell','','al-bell')}Turn on alerts</button>`;
+  return AL.on?`<button class="btn ghost sm live-al" data-act="al-off"${AL.busy?' disabled':''} title="Alerts are on">${pic('bell','','al-bell')}Turn off alerts</button>`:`<button class="btn sm live-al" data-act="al-on"${AL.busy?' disabled':''}>${pic('bell','','al-bell')}Turn on alerts</button>`;
 }
 function applyLive(){
   const el=$('#live');if(!el)return;
