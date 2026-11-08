@@ -26,6 +26,8 @@ const OUT = path.join(ROOT, exporting ? 'dist' : 'public');
   fs.writeFileSync(path.join(appDir, jsName), j.code);
   fs.writeFileSync(path.join(appDir, cssName), c.code);
   fs.writeFileSync(path.join(OUT, 'index.html'), rd('client/index.html').replace('{{CSS}}', cssName).replace('{{JS}}', jsName).replace(/((?:art|brand)\/[a-z0-9_-]+\.(?:webp|png|jpg))/g, `$1?v=${artV}`));
+  /* the service worker has to sit at the root of the site to cover it */
+  fs.copyFileSync(path.join(ROOT, 'client/sw.js'), path.join(OUT, 'sw.js'));
   const gz = s => zlib.gzipSync(s).length;
   console.log(`Built ${jsName} ${(j.code.length / 1024).toFixed(0)} KB (gzip ${(gz(j.code) / 1024).toFixed(0)} KB), ${cssName} ${(c.code.length / 1024).toFixed(0)} KB (gzip ${(gz(c.code) / 1024).toFixed(0)} KB)${exporting ? `, static copy in dist/ calling ${apiBase}` : ''}`);
 })().catch(e => { console.error(e); process.exit(1); });

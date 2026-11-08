@@ -16,3 +16,4 @@ contracts/cache/
 
 # test wallet keys for the local farm script, never commit or upload
 testkeys.txt
+public/sw.js

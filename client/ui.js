@@ -290,6 +290,14 @@ function sheetHTML(){
 }
 
 /* TOWER SCREEN */
+/* the first screen of a new player: three short steps and a button that goes straight into floor 1 */
+function firstFight(){
+  const t=G.team.map(id=>`<span class="mini-pet">${pic('pet_'+id,PETS[id].n)}<span>${PETS[id].n}</span></span>`).join('');
+  return `<section class="box first-fight"><p class="eyebrow">Welcome to Hamster Tower</p><h1>Your first fight takes one minute</h1>
+    <ol class="ff-steps"><li><b>1</b><span>Press Fight. Your hamster is ready.</span></li><li><b>2</b><span>Pick a skill for your hamster and tap an enemy to aim.</span></li><li><b>3</b><span>Win to get coins and your first chests.</span></li></ol>
+    <div class="mini-team">${t}</div>
+    <div class="btns"><button class="btn big pulse" data-act="enter" data-f="1">Fight floor 1</button></div></section>`;
+}
 function viewTower(){
   const cur=curFloor(),can=canSweep(G,Date.now()),maxEnd=Math.ceil(FLOORS.length/10)*10,newest=FLOORS[FLOORS.length-1];
   const end=UI.block||Math.min(maxEnd,Math.ceil(cur/10)*10),a=end-9,b=Math.min(end,FLOORS.length);
@@ -300,7 +308,9 @@ function viewTower(){
     if(n.nap&&f>1)rows.push(`<div class="nap">${pic('chest_4','')}<span>The hamster slept ${dec(n.gap/6)} hours before floor ${f}. Clearing floor ${f-1} for the first time gives a treasure chest.</span></div>`);
   }
   const atTop=b===FLOORS.length;
-  return `<section class="hero">
+  /* a brand new player sees one thing to do: the first fight, one tap away. Everything else waits for the first clear */
+  const fresh=G.top===0&&!G.battles;
+  return `${fresh?firstFight():''}<section class="hero">
       ${pic('scene','','scene')}<div class="hero-shade"></div>
       <div class="hero-tx">
         <p class="eyebrow">A real hamster on the WHEELY9000 wheel</p>
@@ -311,15 +321,15 @@ function viewTower(){
       </div>
       ${pic('wheel_big','Squeektoshi on the wheel','hero-pet')}
     </section>
-    ${liveStrip()}
-    ${patchCard()}
-    ${dailyCard()}
-    ${arenaCard()}
-    <section class="sweep">
+    ${fresh?'':liveStrip()}
+    ${fresh?'':patchCard()}
+    ${fresh?'':dailyCard()}
+    ${fresh?'':arenaCard()}
+    ${fresh?'':`<section class="sweep">
       ${pic(can?'chest_3':'chest_1','')}
       <div><h2>Daily Sweep</h2><p>${G.top===0?'Clear the first floor to unlock Sweep.':can?`Collect rewards from ${G.top} cleared floors right now: about ${fmt(sweepBase())} coins and a batch of chests. Once per day.`:`Already collected today. Available again in ${timeToReset()}. Replay cleared floors for more.`}</p></div>
       <button class="btn${can?'':' ghost'}" data-act="sweep"${can?'':' disabled'}>${can?'Sweep':G.top===0?'Locked':'Done today'}</button>
-    </section>
+    </section>`}
     <section class="tower-wrap" aria-label="Tower">
       ${atTop?'<div class="roof" aria-hidden="true"></div>':''}
       <div class="tower">

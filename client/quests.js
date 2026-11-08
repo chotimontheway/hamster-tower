@@ -3,7 +3,7 @@
    Loaded before ui.js: only the listener below runs on load, everything else runs later */
 const QK={data:null,at:0,loading:false,admin:null,edit:null,del:null,open:{}};
 /* a new player in this tab starts with nothing of the last one's quests, social list or admin screen */
-function questReset(){Object.assign(QK,{data:null,at:0,loading:false,admin:null,edit:null,del:null,open:{}});Object.assign(QW,{pub:null,me:null,at:0,loading:false});UI.qtab='daily';}
+function questReset(){Object.assign(QK,{data:null,at:0,loading:false,admin:null,edit:null,del:null,open:{}});Object.assign(QW,{pub:null,me:null,at:0,loading:false});Object.assign(AL,{init:false,on:false,arena:true,quests:true,busy:false,why:''});UI.qtab='daily';}
 /* WEEKLY TP BOARD: this week's board and the player's place, read when its tab opens and again after half a minute, see lib/tpweek.js */
 const QW={pub:null,me:null,at:0,loading:false};
 /* today's list. The server's day counts: a list it sent is today's until its own midnight, even when this device's clock is a little off */
@@ -54,7 +54,34 @@ function viewQuests(){
   if(tab==='social')return head+(d?questSocial(d)+(d.dev?'<div class="btns"><button class="btn ghost" data-act="q-admin">Manage social quests</button></div>':''):'<section class="box"><p class="note">Loading social quests...</p></section>');
   const q=qToday();
   if(!q)return head+'<section class="box"><p class="note">Loading today\'s quests...</p></section>';
-  return head+questDaily(q,d);
+  return head+questDaily(q,d)+alertsBox();
+}
+/* ALERTS: a message from the browser when the Arena opens and a reminder of unclaimed daily quests, see lib/alerts.js and client/sw.js.
+   Asked for only when the player presses the button, and the box says what it needs when this browser cannot do it */
+const AL={init:false,on:false,arena:true,quests:true,busy:false,why:''};
+const alertsOk=()=>'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
+const alertsIos=()=>/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const alertsHome=()=>{try{return matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;}catch(e){return false;}};
+const keyBytes=t=>{const p=t.replace(/-/g,'+').replace(/_/g,'/'),b=atob(p+'='.repeat((4-p.length%4)%4));return Uint8Array.from(b,c=>c.charCodeAt(0));};
+async function alertsSub(){const reg=await navigator.serviceWorker.register('/sw.js');await navigator.serviceWorker.ready;return {reg,sub:await reg.pushManager.getSubscription()};}
+/* what this browser already has, read once when the box first shows */
+async function alertsLoad(){
+  if(AL.init||!alertsOk())return;AL.init=true;
+  try{
+    const {sub}=await alertsSub();
+    if(sub&&Notification.permission==='granted'){const j=await api('/api/push/status',{endpoint:sub.endpoint});if(j.on){AL.on=true;AL.arena=j.arena;AL.quests=j.quests;}}
+  }catch(e){}
+  if(UI.view==='quests'&&UI.qtab==='daily'&&!SP)render();
+}
+function alertsBox(){
+  if(!alertsOk())return alertsIos()&&!alertsHome()?`<section class="box al-box"><div class="head-row"><h2 style="flex:1 1 auto">Alerts</h2></div><p class="note">To get alerts on an iPhone, press Share, choose Add to Home Screen, then open Hamster Tower from the new icon.</p></section>`:'';
+  alertsLoad();
+  const tg=(k,t)=>`<button class="chipb${AL[k]?' on':''}" data-act="al-pref" data-k="${k}" aria-pressed="${AL[k]}">${t}</button>`;
+  return `<section class="box al-box"><div class="head-row"><h2 style="flex:1 1 auto">Alerts</h2><span class="pill">${AL.on?'On':'Off'}</span></div>
+    <p class="note">Get a message when the Arena opens, and a reminder of unclaimed daily quests in the evening. Free, and you can turn them off any time.</p>
+    ${AL.on?`<div class="tabs">${tg('arena','Arena opens')}${tg('quests','Quest reminder')}</div><div class="btns"><button class="btn ghost" data-act="al-off"${AL.busy?' disabled':''}>Turn off alerts</button></div>`
+    :`<div class="btns"><button class="btn" data-act="al-on"${AL.busy?' disabled':''}>Turn on alerts</button></div>`}
+    ${AL.why?`<p class="note al-why">${esc(AL.why)}</p>`:''}</section>`;
 }
 function questDaily(q,d){
   const band=questBand(q.top),ms=qMs(q),done=q.list.filter(questDone).length,sqk=!!(d&&d.sqk&&band.sqk),n=q.list.length;
@@ -246,6 +273,28 @@ function questAch(){
 }
 function questBurst(t,color){if(!t)return;const b=t.getBoundingClientRect();FX.burst(b.left+b.width/2,b.top+b.height/2,color||'#FFE27A',16,260,'star',8,700);}
 const QUEST_ACT={
+  async 'al-on'(){
+    if(AL.busy)return;AL.busy=true;AL.why='';render();
+    try{
+      if(await Notification.requestPermission()!=='granted'){AL.why='Alerts are blocked for this site in your browser. Allow notifications in the browser settings, then try again.';return;}
+      const {reg,sub}=await alertsSub(),key=(await api('/api/push/key')).key;
+      const s=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(key)});
+      const j=await api('/api/push/subscribe',Object.assign(s.toJSON(),{arena:AL.arena,quests:AL.quests}));
+      AL.on=true;AL.arena=j.arena;AL.quests=j.quests;SND.play('levelup');toast('Alerts are on');
+    }catch(e){AL.why='This browser could not turn alerts on. '+(e&&e.message?e.message:'');}
+    finally{AL.busy=false;render();}
+  },
+  async 'al-off'(){
+    if(AL.busy)return;AL.busy=true;render();
+    try{const {sub}=await alertsSub();if(sub){await api('/api/push/unsubscribe',{endpoint:sub.endpoint}).catch(()=>{});await sub.unsubscribe();}AL.on=false;AL.why='';toast('Alerts are off');}
+    catch(e){AL.why='Could not turn alerts off, please try again.';}
+    finally{AL.busy=false;render();}
+  },
+  async 'al-pref'(d){
+    const k=d.k==='arena'?'arena':'quests',was=AL[k];AL[k]=!was;render();
+    try{const {sub}=await alertsSub();if(!sub)throw new Error('none');await api('/api/push/prefs',{endpoint:sub.endpoint,arena:AL.arena,quests:AL.quests});}
+    catch(e){AL[k]=was;render();fail(e);}
+  },
   'q-tab'(d){UI.qtab=d.k;render();window.scrollTo(0,0);if(d.k==='week')return loadWeek(true);},
   async 'q-claim'(d,t){
     const j=await api('/api/quests/claim',{i:+d.i});

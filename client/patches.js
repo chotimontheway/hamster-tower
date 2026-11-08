@@ -2,6 +2,13 @@
    in a plain list and fixes come last, quietly. A patch the player has not seen yet lights a dot on the Codex tab and puts a card on
    the Tower screen, until the Patch notes page is opened. To add a patch, put a new entry at the top of PATCHES. Loaded before ui.js */
 const PATCHES=[
+  {v:'1.2',date:'2026-11-08',title:'Alerts and an easier first fight',
+    big:[
+      {art:'nav_quest',t:'Alerts',d:'Get a message when the Arena opens and a reminder of unclaimed daily quests in the evening. Turn them on in Quests, on the Daily part. On an iPhone, add the game to the Home Screen first.'},
+      {art:'nav_tower',t:'An easier first fight',d:'New players now start with one clear card and a single button into floor 1, and the rest of the Tower screen shows up after the first clear.'},
+    ],
+    more:[],
+    fixes:[]},
   {v:'1.1',date:'2026-11-07',title:'Weekly board, achievements and quests on X',
     big:[
       {art:'tp',t:'Weekly TP board',d:'Every Tower Point you claim from a quest or a milestone counts on a board that starts over each Monday at 00:00 UTC. The top 10 wallets of the week get chests, blind bags and food bags. In Quests.'},

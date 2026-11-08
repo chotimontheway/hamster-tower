@@ -1,0 +1,14 @@
+{
+  "name": "Hamster Tower",
+  "short_name": "Hamster Tower",
+  "description": "A turn-based tower climb where every round of real work by the Squeekchain hamster is a floor.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1E1A3A",
+  "theme_color": "#1E1A3A",
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

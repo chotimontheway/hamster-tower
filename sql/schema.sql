@@ -215,3 +215,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS social_done_x ON social_done (quest_id, x_id) 
 -- one post or comment can pay one player only. A copy made before this rule may hold the same link twice, the first one stays
 DELETE FROM social_done a USING social_done b WHERE a.proof IS NOT NULL AND a.proof = b.proof AND (a.at, a.quest_id, a.player_id) > (b.at, b.quest_id, b.player_id);
 CREATE UNIQUE INDEX IF NOT EXISTS social_done_proof ON social_done (proof) WHERE proof IS NOT NULL;
+
+-- One row for each browser that said yes to alerts. What was last announced is kept here, so each alert goes to a browser once:
+-- arena_from is the start of the hamster's run the Arena alert was sent for, quest_day the UTC day the quest reminder was sent for
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint   text PRIMARY KEY,
+  player_id  bigint NOT NULL REFERENCES players (id) ON DELETE CASCADE,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  arena      boolean NOT NULL DEFAULT true,
+  quests     boolean NOT NULL DEFAULT true,
+  arena_from bigint NOT NULL DEFAULT 0,
+  quest_day  text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subs_player ON push_subs (player_id);
