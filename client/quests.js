@@ -54,10 +54,10 @@ function viewQuests(){
   if(tab==='social')return head+(d?questSocial(d)+(d.dev?'<div class="btns"><button class="btn ghost" data-act="q-admin">Manage social quests</button></div>':''):'<section class="box"><p class="note">Loading social quests...</p></section>');
   const q=qToday();
   if(!q)return head+'<section class="box"><p class="note">Loading today\'s quests...</p></section>';
-  return head+questDaily(q,d)+alertsBox();
+  return head+questDaily(q,d);
 }
-/* ALERTS: a message from the browser when the Arena opens and a reminder of unclaimed daily quests, see lib/alerts.js and client/sw.js.
-   Asked for only when the player presses the button, and the box says what it needs when this browser cannot do it */
+/* ALERTS: a message from the browser when the Arena or the World Boss opens and a reminder of unclaimed daily quests, see lib/alerts.js and
+   client/sw.js. The button sits beside the live strip on the Tower screen, and is only pressed by the player */
 const AL={init:false,on:false,arena:true,quests:true,busy:false,why:''};
 const alertsOk=()=>'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
 const alertsIos=()=>/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
@@ -72,17 +72,7 @@ async function alertsLoad(){
     const {sub}=await alertsSub();
     if(sub&&Notification.permission==='granted'){const j=await api('/api/push/status',{endpoint:sub.endpoint});if(j.on){AL.on=true;AL.arena=j.arena;AL.quests=j.quests;}}
   }catch(e){}
-  if(UI.view==='quests'&&UI.qtab==='daily'&&!SP)render();
-}
-function alertsBox(){
-  if(!alertsOk())return alertsIos()&&!alertsHome()?`<section class="box al-box"><div class="head-row">${pic('bell','','al-bell')}<h2 style="flex:1 1 auto">Alerts</h2></div><p class="note">To get alerts on an iPhone, press Share, choose Add to Home Screen, then open Hamster Tower from the new icon.</p></section>`:'';
-  alertsLoad();
-  const tg=(k,t)=>`<button class="chipb${AL[k]?' on':''}" data-act="al-pref" data-k="${k}" aria-pressed="${AL[k]}">${t}</button>`;
-  return `<section class="box al-box"><div class="head-row">${pic('bell','','al-bell')}<h2 style="flex:1 1 auto">Alerts</h2><span class="pill">${AL.on?'On':'Off'}</span></div>
-    <p class="note">Get a message when the Arena opens, and a reminder of unclaimed daily quests in the evening. Free, and you can turn them off any time.</p>
-    ${AL.on?`<div class="tabs">${tg('arena','Arena opens')}${tg('quests','Quest reminder')}</div><div class="btns"><button class="btn ghost" data-act="al-off"${AL.busy?' disabled':''}>Turn off alerts</button></div>`
-    :`<div class="btns"><button class="btn" data-act="al-on"${AL.busy?' disabled':''}>Turn on alerts</button></div>`}
-    ${AL.why?`<p class="note al-why">${esc(AL.why)}</p>`:''}</section>`;
+  if(UI.view==='tower'&&!SP)render();
 }
 function questDaily(q,d){
   const band=questBand(q.top),ms=qMs(q),done=q.list.filter(questDone).length,sqk=!!(d&&d.sqk&&band.sqk),n=q.list.length;
@@ -293,11 +283,7 @@ const QUEST_ACT={
     catch(e){AL.why='Could not turn alerts off, please try again.';}
     finally{AL.busy=false;render();}
   },
-  async 'al-pref'(d){
-    const k=d.k==='arena'?'arena':'quests',was=AL[k];AL[k]=!was;render();
-    try{const {sub}=await alertsSub();if(!sub)throw new Error('none');await api('/api/push/prefs',{endpoint:sub.endpoint,arena:AL.arena,quests:AL.quests});}
-    catch(e){AL[k]=was;render();fail(e);}
-  },
+
   'q-tab'(d){UI.qtab=d.k;render();window.scrollTo(0,0);if(d.k==='week')return loadWeek(true);},
   async 'q-claim'(d,t){
     const j=await api('/api/quests/claim',{i:+d.i});

@@ -365,7 +365,8 @@ function liveStrip(){
 }
 /* the alert button sits right here, next to the wheel it is about: a bell to turn alerts on and the same place to turn them off. The settings are in Quests */
 function liveAlert(){
-  if(!alertsOk())return '';
+  /* an iPhone gives alerts only to a game added to the Home Screen: the button says so */
+  if(!alertsOk())return alertsIos()&&!alertsHome()?`<button class="btn sm live-al" data-act="al-ios">${pic('bell','','al-bell')}Turn on alerts</button>`:'';
   alertsLoad();
   return AL.on?`<button class="btn ghost sm live-al" data-act="al-off"${AL.busy?' disabled':''} title="Alerts are on">${pic('bell','','al-bell')}Turn off alerts</button>`:`<button class="btn sm live-al" data-act="al-on"${AL.busy?' disabled':''}>${pic('bell','','al-bell')}Turn on alerts</button>`;
 }
@@ -2259,6 +2260,7 @@ const ACT={
     await loadRef(true);render();
   },
   'wb-fight'(){UI.result=null;return enterBattle({floor:40,boss:true,enemies:[WBS.data&&WBS.data.boss?WBS.data.boss.id:'alarm_clock']},{wb:true});},
+  'al-ios'(){toast('On an iPhone, press Share, choose Add to Home Screen, then open Hamster Tower from the new icon to turn on alerts');},
   async 'wb-claim'(d,t){
     const j=await api('/api/wb/claim',{});
     if(j.state)applyState(j.state);
